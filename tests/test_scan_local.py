@@ -219,6 +219,24 @@ def test_detect_scanner_returns_none_when_which_returns_none():
     assert version is None
 
 
+def test_detect_scanner_parses_colon_version_format():
+    """v0.1.1 fix: osv-scanner v2.3.3 emits 'osv-scanner version: 2.3.3'
+    (with a colon), not 'osv-scanner version 2.3.3'. The regex must
+    accept both."""
+    fake_result = MagicMock()
+    fake_result.returncode = 0
+    fake_result.stdout = (
+        "osv-scanner version: 2.3.3\n"
+        "osv-scalibr version: 0.4.2\n"
+        "commit: b97d1de7d8c3c7de8c11308b3d9cb5bbf3f7a0e9\n"
+        "built at: 2026-02-11T23:42:50Z\n"
+    )
+    with patch("scripts.scan_local.shutil.which", return_value="osv-scanner"):
+        with patch("scripts.scan_local.subprocess.run", return_value=fake_result):
+            version = detect_scanner("osv-scanner")
+    assert version == "2.3.3"
+
+
 def test_scan_all_manifests_continues_on_one_bad_target():
     """One target failing must not block other targets from scanning."""
     from scripts.scan_local import scan_all_manifests

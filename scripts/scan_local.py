@@ -47,8 +47,10 @@ def detect_scanner(name: str = "osv-scanner") -> Optional[str]:
         return None
     if result.returncode != 0:
         return None
-    # Parse "osv-scanner version 2.3.3" or similar
-    match = re.search(r"version\s+(\d+\.\d+\.\d+)", result.stdout)
+    # Parse "osv-scanner version 2.3.3" or "osv-scanner version: 2.3.3"
+    # v0.1.1 fix: osv-scanner v2.3.3 emits "version: X.Y.Z" with a colon;
+    # earlier builds emit "version X.Y.Z". Accept both.
+    match = re.search(r"version[:\s]+(\d+\.\d+\.\d+)", result.stdout)
     if match:
         return match.group(1)
     return None
