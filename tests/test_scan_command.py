@@ -142,3 +142,41 @@ def test_exit_code_1_when_high_finding_with_default_fail_on_critical(tmp_path, t
 
     assert exit0 == 0
     assert exit1 == 1
+
+
+def test_run_scan_with_adhoc_path(tmp_path, tmp_state):
+    """--path bypasses the registry entirely and scans an arbitrary directory."""
+    workspace = tmp_path / "ad-hoc"
+    workspace.mkdir()
+    proj = workspace / "newproj"
+    proj.mkdir()
+    (proj / "package-lock.json").write_text("{}")
+
+    fake_finding = new_finding(
+        purl="pkg:npm/foo@1.0",
+        vuln_id="GHSA-y",
+        severity="high",
+        manifest_path=str(proj / "package-lock.json"),
+        target="ad-hoc",
+    )
+
+    from scripts.scan_command import run_scan
+
+    with patch("scripts.scan_command.scan_all_manifests", return_value=[fake_finding]):
+        with patch("scripts.scan_command.KEVClient") as mock_kev_cls:
+            mock_kev = MagicMock()
+            mock_kev.is_degraded = False
+            mock_kev.is_known_exploited.return_value = False
+            mock_kev.refresh = MagicMock()
+            mock_kev_cls.return_value = mock_kev
+
+            # No registry path passed; adhoc_path provided
+            exit_code, report_path = run_scan(
+                registry_path=Path("does-not-exist.yaml"),
+                state_dir=tmp_state,
+                adhoc_path=workspace,
+                fail_on="high",
+            )
+
+    assert exit_code == 1
+    assert report_path.exists()
