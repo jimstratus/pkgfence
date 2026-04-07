@@ -140,3 +140,30 @@ def test_sort_findings_severity_then_alphabetical():
     # Alphabetical within severity
     purls_critical = [f["purl"] for f in sorted_list if f["severity"] == "critical"]
     assert purls_critical == ["pkg:npm/aaa@1.0", "pkg:npm/bbb@1.0"]
+
+
+def test_apply_exclusions_filters_info_severity():
+    from scripts.triage import apply_exclusions
+    findings = [
+        new_finding(purl="pkg:npm/foo@1.0", vuln_id="A", severity="critical",
+                    manifest_path="/tmp/a", target="t"),
+        new_finding(purl="pkg:npm/bar@1.0", vuln_id="B", severity="info",
+                    manifest_path="/tmp/a", target="t"),
+    ]
+    config = {"exclude_severities_below": "low", "exclude_categories": []}
+    result = apply_exclusions(findings, config)
+    assert len(result) == 1
+    assert result[0]["severity"] == "critical"
+
+
+def test_apply_exclusions_keeps_scan_error_records():
+    """SCAN_ERROR records must survive exclusions — they're status reports."""
+    from scripts.triage import apply_exclusions
+    findings = [
+        new_finding(purl="pkg:scan-error/x@-", vuln_id="SCAN_ERROR",
+                    severity="info", manifest_path="/tmp/a", target="t",
+                    status="SCAN_ERROR"),
+    ]
+    config = {"exclude_severities_below": "low", "exclude_categories": []}
+    result = apply_exclusions(findings, config)
+    assert len(result) == 1  # SCAN_ERROR survives

@@ -1,0 +1,12 @@
+# Hardcoded low-value finding categories — Tier B #22
+# Borrowed from anthropics/claude-code-security-review
+# These categories generate too many false positives to be worth the noise.
+# Phase 1: simple severity floor + category list (string match in description).
+
+exclude_categories:
+  - denial_of_service
+  - rate_limiting
+  - memory_exhaustion
+  - generic_input_validation
+  - open_redirect_low_impact
+exclude_severities_below: low  # 'info' is filtered, all others kept

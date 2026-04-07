@@ -93,3 +93,34 @@ def sort_findings(findings: list[Finding]) -> list[Finding]:
             f.get("vuln_id", ""),
         )
     return sorted(findings, key=key)
+
+
+def apply_exclusions(findings: list[Finding], config: dict) -> list[Finding]:
+    """Filter out findings matching the exclusion config.
+
+    Args:
+        findings: list of Findings (post-dedup, post-MAL-override)
+        config: dict with keys 'exclude_severities_below', 'exclude_categories'
+
+    Rules:
+    - SCAN_ERROR records always survive (they're status reports, not findings)
+    - Findings with severity below floor are excluded
+    - Findings whose description matches any excluded category are excluded
+    """
+    floor = config.get("exclude_severities_below", "info")
+    floor_rank = SEVERITY_RANK.get(floor, 99)
+    excluded_cats = set(config.get("exclude_categories", []))
+
+    def keep(f: Finding) -> bool:
+        if f.get("status") == "SCAN_ERROR":
+            return True
+        sev_rank = SEVERITY_RANK.get(f.get("severity", "medium"), 2)
+        if sev_rank > floor_rank:
+            return False
+        desc_lower = f.get("description", "").lower()
+        for cat in excluded_cats:
+            if cat.replace("_", " ") in desc_lower:
+                return False
+        return True
+
+    return [f for f in findings if keep(f)]
