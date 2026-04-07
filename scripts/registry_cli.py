@@ -44,7 +44,10 @@ def cmd_list(args) -> int:
         print(f"  - {p['name']}: {p['path']}")
     print(f"\nSSH targets ({len(reg.get('ssh', []))}):")
     for s in reg.get("ssh", []):
-        print(f"  - {s['name']}: {s['user']}@{s['host']}")
+        tier = s.get("tier", "?")
+        paths = ", ".join(s.get("discover_paths", [])) or "(no discover_paths)"
+        print(f"  - {s['name']} (tier {tier}): {s['user']}@{s['host']}")
+        print(f"    discover_paths: {paths}")
     print(f"\nGitHub accounts ({len(reg.get('github', []))}):")
     for g in reg.get("github", []):
         print(f"  - {g['account']}: orgs={g.get('orgs', [])}")
@@ -170,7 +173,11 @@ def cmd_remove(args) -> int:
     if len(reg["projects"]) < before:
         removed = True
 
-    # (Phase 2: match ssh and github by name)
+    # Match ssh by name
+    before = len(reg.get("ssh", []))
+    reg["ssh"] = [s for s in reg.get("ssh", []) if s.get("name") != identifier]
+    if len(reg["ssh"]) < before:
+        removed = True
 
     if not removed:
         print(f"Error: target {identifier!r} not found in registry", file=sys.stderr)

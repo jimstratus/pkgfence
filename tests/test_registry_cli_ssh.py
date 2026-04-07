@@ -69,3 +69,31 @@ def test_add_ssh_duplicate_name_rejected(tmp_path):
     rc = main(["--registry", str(reg), "add-ssh", "--name", "mars",
                "--host", "other.example", "--user", "scanuser"])
     assert rc == 3
+
+
+def test_remove_ssh_by_name(tmp_path):
+    reg = tmp_path / "registry.yaml"
+    _init_registry(reg)
+    main(["--registry", str(reg), "add-ssh", "--name", "mars",
+          "--host", "mars.example", "--user", "scanuser"])
+    main(["--registry", str(reg), "add-ssh", "--name", "bespin",
+          "--host", "bespin.example", "--user", "scanuser"])
+    rc = main(["--registry", str(reg), "remove", "mars"])
+    assert rc == 0
+    data = load_registry(reg)
+    assert [s["name"] for s in data["ssh"]] == ["bespin"]
+
+
+def test_list_shows_ssh_targets(tmp_path, capsys):
+    reg = tmp_path / "registry.yaml"
+    _init_registry(reg)
+    main(["--registry", str(reg), "add-ssh", "--name", "mars",
+          "--host", "mars.example", "--user", "scanuser", "--tier", "1",
+          "--discover-path", "/var/www"])
+    capsys.readouterr()  # clear add-ssh output
+    rc = main(["--registry", str(reg), "list"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "mars" in out
+    assert "scanuser@mars.example" in out
+    assert "/var/www" in out
