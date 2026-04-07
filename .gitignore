@@ -1,0 +1,36 @@
+# pkgfence .gitignore
+# Runtime state is NEVER committed — reports may contain unfixed vulnerabilities,
+# the registry may contain production hostnames, exceptions may reveal accepted risks.
+
+# Runtime state (Phase 1 onwards)
+state/
+scripts/state/
+**/state/
+
+# Python
+*.pyc
+__pycache__/
+.pytest_cache/
+.venv/
+venv/
+.env
+*.egg-info/
+build/
+dist/
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+Thumbs.db
+
+# Temp files from merge operations
+_merged.md
+*.tmp
+*.bak
+
+# Logs (pkgfence's own runtime logs once logger is implemented)
+logs/
+*.log
