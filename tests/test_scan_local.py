@@ -101,3 +101,23 @@ def test_osv_scanner_exit_code_128_is_empty_lockfile():
     with patch("scripts.scan_local.subprocess.run", return_value=fake_result):
         with pytest.raises(EmptyLockfileError):
             run_osv_scanner_lockfile("/tmp/fake/package-lock.json")
+
+
+from scripts.scan_local import parse_osv_output
+
+
+def test_parse_osv_output_extracts_findings():
+    findings = parse_osv_output(SAMPLE_OSV_OUTPUT_WITH_VULN, manifest_path="/tmp/fake/package-lock.json", target="fake-target")
+    assert len(findings) == 1
+    f = findings[0]
+    assert f["vuln_id"] == "GHSA-jf85-cpcp-j695"
+    assert f["purl"] == "pkg:npm/lodash@4.17.10"
+    assert f["manifest_path"] == "/tmp/fake/package-lock.json"
+    assert f["target"] == "fake-target"
+    assert f["scanner_source"] == "osv-scanner"
+    assert "Prototype Pollution" in f.get("description", "")
+
+
+def test_parse_osv_output_empty_results_returns_empty_list():
+    findings = parse_osv_output(SAMPLE_OSV_OUTPUT_NO_VULNS, manifest_path="/tmp/foo", target="t")
+    assert findings == []

@@ -100,3 +100,96 @@ def run_osv_scanner_lockfile(lockfile_path: str) -> str:
         f"osv-scanner failed with exit {result.returncode} on {lockfile_path}: "
         f"{result.stderr.strip()[:500]}"
     )
+
+
+import json as _json
+
+from scripts.lib.purl import build_purl
+from scripts.lib.types import Finding, new_finding
+
+
+def _extract_severity(vuln_severity_list: list[dict]) -> str:
+    """Extract a severity bucket from osv-scanner vulnerability severity list.
+
+    osv-scanner emits severity as a list of dicts with 'type' and 'score'.
+    Score may be a CVSS vector string or a numeric string. We map:
+        score >= 9.0 -> critical
+        score >= 7.0 -> high
+        score >= 4.0 -> medium
+        score >  0.0 -> low
+        else            -> info
+    """
+    if not vuln_severity_list:
+        return "medium"  # default if scanner didn't provide one
+    for entry in vuln_severity_list:
+        score_str = entry.get("score", "")
+        # Try numeric extraction
+        m = re.search(r"\b(\d+\.\d+|\d+)\b", score_str)
+        if m:
+            try:
+                score = float(m.group(1))
+                if score >= 9.0:
+                    return "critical"
+                if score >= 7.0:
+                    return "high"
+                if score >= 4.0:
+                    return "medium"
+                if score > 0.0:
+                    return "low"
+                return "info"
+            except ValueError:
+                pass
+    return "medium"
+
+
+def parse_osv_output(raw_json: str, manifest_path: str, target: str) -> list[Finding]:
+    """Parse osv-scanner JSON output into normalized Finding records.
+
+    osv-scanner JSON shape:
+        {"results": [
+            {"source": {"path": "...", "type": "lockfile"},
+             "packages": [
+                 {"package": {"name": "...", "version": "...", "ecosystem": "..."},
+                  "vulnerabilities": [
+                      {"id": "GHSA-...", "summary": "...",
+                       "severity": [{"type": "CVSS_V3", "score": "..."}],
+                       "aliases": ["CVE-..."]}
+                  ]}
+             ]}
+        ]}
+
+    Returns a list of Finding TypedDicts (one per vuln per package).
+    """
+    try:
+        data = _json.loads(raw_json)
+    except _json.JSONDecodeError as e:
+        raise ScannerError(f"osv-scanner returned invalid JSON: {e}") from e
+
+    findings: list[Finding] = []
+    for result in data.get("results", []):
+        for pkg_entry in result.get("packages", []):
+            pkg = pkg_entry.get("package", {})
+            name = pkg.get("name", "")
+            version = pkg.get("version", "")
+            ecosystem = pkg.get("ecosystem", "").lower()
+            try:
+                purl = build_purl(ecosystem, name, version)
+            except Exception:
+                # Unknown ecosystem — fall back to a synthetic purl
+                purl = f"pkg:{ecosystem or 'unknown'}/{name}@{version}"
+
+            for vuln in pkg_entry.get("vulnerabilities", []):
+                vuln_id = vuln.get("id", "UNKNOWN")
+                severity = _extract_severity(vuln.get("severity", []))
+                f = new_finding(
+                    purl=purl,
+                    vuln_id=vuln_id,
+                    severity=severity,
+                    manifest_path=manifest_path,
+                    target=target,
+                    description=vuln.get("summary", ""),
+                    aliases=vuln.get("aliases", []),
+                    scanner_source="osv-scanner",
+                )
+                findings.append(f)
+    return findings
