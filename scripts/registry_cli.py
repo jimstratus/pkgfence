@@ -5,6 +5,7 @@ Subcommands:
     list        Print registered targets
     add-root    Add a local parent directory to scan (Task 3.5)
     add-project Add a specific project path (Task 3.6)
+    add-ssh     Add an SSH host to scan (Phase 2)
     remove      Remove a target by name or path (Task 3.6)
 
 Exit codes:
