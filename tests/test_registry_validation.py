@@ -246,3 +246,42 @@ def test_registry_cli_remove_nonexistent_fails(tmp_path):
     )
     assert result.returncode == 3
     assert "not found" in result.stderr.lower()
+
+
+def test_ssh_entry_accepts_optional_key_file(tmp_path):
+    """ssh items may optionally include a key_file path (for -i <path>)."""
+    from scripts.lib.registry import load_registry
+    reg = tmp_path / "registry.yaml"
+    reg.write_text(
+        "version: 1\n"
+        "roots: []\n"
+        "projects: []\n"
+        "ssh:\n"
+        "  - name: dev-host-1\n"
+        "    host: 192.0.2.10\n"
+        "    user: devuser\n"
+        "    key_file: ~/.ssh/lab-key\n"
+        "    tier: 2\n"
+        "github: []\n"
+    )
+    data = load_registry(reg)
+    assert data["ssh"][0]["key_file"] == "~/.ssh/lab-key"
+
+
+def test_ssh_entry_without_key_file_still_valid(tmp_path):
+    """ssh items without key_file must remain valid (fall back to ~/.ssh/config)."""
+    from scripts.lib.registry import load_registry
+    reg = tmp_path / "registry.yaml"
+    reg.write_text(
+        "version: 1\n"
+        "roots: []\n"
+        "projects: []\n"
+        "ssh:\n"
+        "  - name: mars\n"
+        "    host: mars.example\n"
+        "    user: scanuser\n"
+        "    tier: 1\n"
+        "github: []\n"
+    )
+    data = load_registry(reg)
+    assert "key_file" not in data["ssh"][0]
