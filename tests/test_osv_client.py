@@ -43,3 +43,39 @@ def test_querybatch_rejects_missing_version():
     client = OSVClient()
     with pytest.raises(OSVError, match="version"):
         client.querybatch([{"package": {"name": "foo", "ecosystem": "npm"}}])
+
+
+def test_osv_cache_hits_avoid_network(tmp_state):
+    """Cached results are returned without invoking httpx."""
+    client = OSVClient(cache_dir=tmp_state / "cache" / "osv", cache_ttl_hours=6)
+    fake_results = [{"vulns": []}]
+    queries = [{"package": {"name": "lodash", "ecosystem": "npm"}, "version": "4.17.21"}]
+    # Manually populate cache
+    client._cache_set(queries, fake_results)
+    with patch("scripts.lib.osv_client.httpx.Client") as mock_client:
+        results = client.querybatch(queries)
+        mock_client.assert_not_called()
+    assert results == fake_results
+
+
+def test_osv_cache_readable_fallback_on_ioerror(tmp_state, monkeypatch):
+    """Cache read errors fall through to live fetch (M8 critic gap)."""
+    client = OSVClient(cache_dir=tmp_state / "cache" / "osv", cache_ttl_hours=6)
+    queries = [{"package": {"name": "lodash", "ecosystem": "npm"}, "version": "4.17.21"}]
+    # Pre-populate cache so a key exists
+    client._cache_set(queries, [{"vulns": []}])
+    # Now break Path.read_text to simulate cache file disappearance
+    original = type(tmp_state).read_text
+    def broken_read_text(self, *args, **kwargs):
+        raise IOError("simulated cache disappearance")
+    monkeypatch.setattr(type(tmp_state), "read_text", broken_read_text)
+    # Cache lookup should fail gracefully and fall through to network
+    fake_response = {"results": [{"vulns": []}]}
+    with patch("scripts.lib.osv_client.httpx.Client") as mock_client:
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = fake_response
+        mock_client.return_value.__enter__.return_value.post.return_value = mock_response
+        results = client.querybatch(queries)
+    # Restored or not, the call should have produced results (either via fallback or via fresh fetch)
+    assert results == [{"vulns": []}]

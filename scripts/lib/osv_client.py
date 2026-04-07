@@ -1,13 +1,24 @@
-"""OSV.dev API client.
+"""OSV.dev API client with file-system cache.
 
 Round 2 finding R2-4: querybatch returns 400 if any single query in the batch
 is malformed. Pre-validate locally before batching.
 
 Round 2 finding: HTTP/2 negotiation avoids the 32 MiB response cap on HTTP/1.1.
 P50 <= 500ms; no documented rate limits.
+
+Critic gap M8: cache read errors fall through to live fetch (no silent failure).
 """
+import hashlib
+import json
+import time
+from pathlib import Path
+from typing import Any, Optional
+
 import httpx
-from typing import Any
+
+from scripts.lib.logger import get_logger
+
+log = get_logger(__name__)
 
 
 class OSVError(Exception):
@@ -27,9 +38,64 @@ def _validate_query(q: dict) -> None:
         raise OSVError(f"Query missing 'version' or 'commit': {q}")
 
 
+def _canonical_query_key(queries: list[dict]) -> str:
+    """SHA256 of the canonical JSON encoding of the queries list.
+
+    Sort keys so {a:1,b:2} and {b:2,a:1} produce the same hash.
+    """
+    canonical = json.dumps(queries, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 class OSVClient:
-    def __init__(self, timeout: float = 30.0):
+    def __init__(
+        self,
+        timeout: float = 30.0,
+        cache_dir: Optional[Path] = None,
+        cache_ttl_hours: float = 6.0,
+    ):
         self.timeout = timeout
+        self.cache_dir = Path(cache_dir) if cache_dir else None
+        self.cache_ttl_seconds = cache_ttl_hours * 3600
+        if self.cache_dir:
+            self.cache_dir.mkdir(parents=True, exist_ok=True)
+
+    def _cache_path(self, queries: list[dict]) -> Optional[Path]:
+        if not self.cache_dir:
+            return None
+        key = _canonical_query_key(queries)
+        return self.cache_dir / f"{key}.json"
+
+    def _cache_get(self, queries: list[dict]) -> Optional[list[dict]]:
+        """Return cached results if fresh; None otherwise.
+
+        Catches IOError/OSError/JSONDecodeError/KeyError to fall through to
+        live fetch on any cache I/O failure (M8 critic gap fix).
+        """
+        path = self._cache_path(queries)
+        if not path or not path.exists():
+            return None
+        try:
+            age = time.time() - path.stat().st_mtime
+            if age > self.cache_ttl_seconds:
+                return None
+            data = json.loads(path.read_text(encoding="utf-8"))
+            return data["results"]
+        except (IOError, OSError, json.JSONDecodeError, KeyError) as e:
+            log.warning("OSV cache read failed at %s: %s -- falling through to live fetch", path, e)
+            return None
+
+    def _cache_set(self, queries: list[dict], results: list[dict]) -> None:
+        path = self._cache_path(queries)
+        if not path:
+            return
+        try:
+            path.write_text(
+                json.dumps({"results": results}, separators=(",", ":")),
+                encoding="utf-8",
+            )
+        except (IOError, OSError) as e:
+            log.warning("OSV cache write failed at %s: %s", path, e)
 
     def querybatch(self, queries: list[dict]) -> list[dict]:
         """Query OSV for a batch of (package, version) tuples.
@@ -37,13 +103,20 @@ class OSVClient:
         Pre-validates each query locally to avoid the 400-on-one-bad-query
         whole-batch failure.
 
-        Returns the 'results' array from the OSV response. Each entry is
-        a dict with 'vulns' (list) or empty if no vulns.
+        Checks file cache first if cache_dir is set; falls through to live
+        fetch on cache miss or cache I/O failure.
+
+        Returns the 'results' array from the OSV response.
         """
         for q in queries:
             _validate_query(q)
         if not queries:
             return []
+
+        cached = self._cache_get(queries)
+        if cached is not None:
+            return cached
+
         with httpx.Client(http2=True, timeout=self.timeout) as client:
             try:
                 resp = client.post(OSV_QUERYBATCH_URL, json={"queries": queries})
@@ -52,4 +125,6 @@ class OSVClient:
         if resp.status_code != 200:
             raise OSVError(f"OSV returned {resp.status_code}: {resp.text[:500]}")
         data = resp.json()
-        return data.get("results", [])
+        results = data.get("results", [])
+        self._cache_set(queries, results)
+        return results
