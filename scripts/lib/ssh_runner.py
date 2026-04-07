@@ -21,9 +21,10 @@ ALLOWED_COMMANDS = frozenset({
 
 
 class SSHRunner:
-    def __init__(self, host: str, user: str):
+    def __init__(self, host: str, user: str, key_file: str | None = None):
         self.host = host
         self.user = user
+        self.key_file = key_file
 
     def run(self, command: List[str]) -> str:
         """Run a command on the remote via SSH. Raises SSHUnreachableError if
@@ -35,8 +36,10 @@ class SSHRunner:
                 f"Command {command[0]!r} not in SSH allowlist {sorted(ALLOWED_COMMANDS)}"
             )
         ssh_cmd = ["ssh", "-o", "ConnectTimeout=10",
-                   "-o", "BatchMode=yes",  # never prompt for password
-                   f"{self.user}@{self.host}"] + command
+                   "-o", "BatchMode=yes"]  # never prompt for password
+        if self.key_file:
+            ssh_cmd += ["-i", self.key_file]
+        ssh_cmd += [f"{self.user}@{self.host}"] + command
         try:
             result = subprocess.run(
                 ssh_cmd, capture_output=True, text=True, timeout=300, check=False,
