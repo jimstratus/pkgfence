@@ -31,3 +31,15 @@ def test_single_query_lodash_known_vulnerable():
     assert len(results) == 1
     assert len(results[0]["vulns"]) == 1
     assert results[0]["vulns"][0]["id"] == "GHSA-jf85-cpcp-j695"
+
+
+def test_querybatch_rejects_missing_package():
+    client = OSVClient()
+    with pytest.raises(OSVError, match="package"):
+        client.querybatch([{"version": "1.0"}])
+
+
+def test_querybatch_rejects_missing_version():
+    client = OSVClient()
+    with pytest.raises(OSVError, match="version"):
+        client.querybatch([{"package": {"name": "foo", "ecosystem": "npm"}}])
