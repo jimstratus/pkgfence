@@ -250,7 +250,6 @@ def test_registry_cli_remove_nonexistent_fails(tmp_path):
 
 def test_ssh_entry_accepts_optional_key_file(tmp_path):
     """ssh items may optionally include a key_file path (for -i <path>)."""
-    from scripts.lib.registry import load_registry
     reg = tmp_path / "registry.yaml"
     reg.write_text(
         "version: 1\n"
@@ -270,7 +269,6 @@ def test_ssh_entry_accepts_optional_key_file(tmp_path):
 
 def test_ssh_entry_without_key_file_still_valid(tmp_path):
     """ssh items without key_file must remain valid (fall back to ~/.ssh/config)."""
-    from scripts.lib.registry import load_registry
     reg = tmp_path / "registry.yaml"
     reg.write_text(
         "version: 1\n"
