@@ -13,6 +13,7 @@ MANIFEST_ECOSYSTEM = {
     "poetry.lock": "python",
     "Pipfile.lock": "python",
     "uv.lock": "python",
+    "pyproject.toml": "python",  # v0.1.2: PEP 518/621 modern Python projects
     "Cargo.lock": "rust",
     "go.sum": "go",
     "Gemfile.lock": "ruby",

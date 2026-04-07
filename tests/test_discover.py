@@ -106,3 +106,20 @@ def test_discover_tier_filter(tmp_path):
     assert len(results) == 1
     # Should be the tier-1 root
     assert "tier1-proj" in results[0]["path"]
+
+
+def test_discover_pyproject_toml(tmp_path):
+    """v0.1.2: pyproject.toml is recognized as a python manifest.
+    Needed so pkgfence can scan its own dependencies during dogfood."""
+    proj = tmp_path / "pypi-proj"
+    proj.mkdir()
+    (proj / "pyproject.toml").write_text('''
+[project]
+name = "example"
+version = "1.0.0"
+dependencies = ["httpx==0.27.2"]
+''')
+    results = list(discover_manifests([{"path": str(tmp_path), "tier": 1}]))
+    assert len(results) == 1
+    assert results[0]["ecosystem"] == "python"
+    assert results[0]["path"].endswith("pyproject.toml")
