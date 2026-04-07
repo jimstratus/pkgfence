@@ -11,6 +11,7 @@ Round 2 + Task 1.5 finding: osv-scanner v2.3.3 exit codes:
 Task 8.5 handles exit-128 / parse failures via SCAN_ERROR Finding records.
 """
 import re
+import shutil
 import subprocess
 from typing import Optional
 
@@ -22,16 +23,25 @@ OSV_SUCCESS_EXIT_CODES = {0, 1}
 def detect_scanner(name: str = "osv-scanner") -> Optional[str]:
     """Run `<name> --version` and parse the version string.
 
+    v0.1.1 fix: uses shutil.which() to resolve the binary path before
+    invoking subprocess. This handles Windows scoop shims and other
+    PATH-based wrappers (.cmd, .bat, .ps1) that subprocess might not
+    find via the bare name on Windows.
+
     Returns:
         Version string (e.g. '2.3.3') if installed, None if not found.
     """
+    resolved = shutil.which(name)
+    if resolved is None:
+        return None
     try:
         result = subprocess.run(
-            [name, "--version"],
+            [resolved, "--version"],
             capture_output=True,
             text=True,
             timeout=10,
             check=False,
+            shell=False,
         )
     except (FileNotFoundError, OSError):
         return None

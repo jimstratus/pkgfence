@@ -9,13 +9,14 @@ def test_detect_osv_scanner_installed():
     fake_result = MagicMock()
     fake_result.returncode = 0
     fake_result.stdout = "osv-scanner version 2.3.3\nbuilt at 2026-02-11"
-    with patch("scripts.scan_local.subprocess.run", return_value=fake_result):
-        version = detect_scanner("osv-scanner")
+    with patch("scripts.scan_local.shutil.which", return_value="osv-scanner"):
+        with patch("scripts.scan_local.subprocess.run", return_value=fake_result):
+            version = detect_scanner("osv-scanner")
     assert version == "2.3.3"
 
 
 def test_detect_osv_scanner_not_installed():
-    with patch("scripts.scan_local.subprocess.run", side_effect=FileNotFoundError):
+    with patch("scripts.scan_local.shutil.which", return_value=None):
         version = detect_scanner("osv-scanner")
     assert version is None
 
@@ -25,8 +26,9 @@ def test_detect_osv_scanner_below_minimum_version():
     fake_result = MagicMock()
     fake_result.returncode = 0
     fake_result.stdout = "osv-scanner version 1.9.0"
-    with patch("scripts.scan_local.subprocess.run", return_value=fake_result):
-        version = detect_scanner("osv-scanner")
+    with patch("scripts.scan_local.shutil.which", return_value="osv-scanner"):
+        with patch("scripts.scan_local.subprocess.run", return_value=fake_result):
+            version = detect_scanner("osv-scanner")
     assert version == "1.9.0"
 
 
@@ -191,6 +193,30 @@ def test_scan_manifest_safely_continues_on_scanner_error():
             })
     assert len(findings) == 1
     assert findings[0]["status"] == "SCAN_ERROR"
+
+
+def test_detect_scanner_uses_shutil_which():
+    """v0.1.1 fix: detect_scanner uses shutil.which() to resolve scoop
+    shims and other PATH-based wrappers, then invokes via the resolved path."""
+    fake_result = MagicMock()
+    fake_result.returncode = 0
+    fake_result.stdout = "osv-scanner version 2.3.3"
+    with patch("scripts.scan_local.shutil.which", return_value="C:/Users/ryanm/scoop/shims/osv-scanner.cmd"):
+        with patch("scripts.scan_local.subprocess.run", return_value=fake_result) as mock_run:
+            version = detect_scanner("osv-scanner")
+    assert version == "2.3.3"
+    # Verify subprocess.run was called with the resolved path, not the bare name
+    call_args = mock_run.call_args
+    args_passed = call_args[0][0] if call_args[0] else call_args[1].get("args", [])
+    assert args_passed[0] == "C:/Users/ryanm/scoop/shims/osv-scanner.cmd"
+
+
+def test_detect_scanner_returns_none_when_which_returns_none():
+    """v0.1.1 fix: if shutil.which can't find it, return None without
+    even invoking subprocess."""
+    with patch("scripts.scan_local.shutil.which", return_value=None):
+        version = detect_scanner("osv-scanner")
+    assert version is None
 
 
 def test_scan_all_manifests_continues_on_one_bad_target():
