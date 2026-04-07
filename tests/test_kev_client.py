@@ -22,3 +22,27 @@ def test_kev_lookup_by_cveid_present(tmp_state):
         assert client.is_known_exploited("CVE-2024-3094") is True
         assert client.is_known_exploited("CVE-2025-30066") is True
         assert client.is_known_exploited("CVE-2099-99999") is False
+
+
+def test_kev_marks_degraded_on_non_200(tmp_state):
+    """KEV fetch returning non-200 marks the client as degraded."""
+    with patch("scripts.lib.kev_client.httpx.Client") as mock_client:
+        mock_response = MagicMock()
+        mock_response.status_code = 503
+        mock_response.text = "Service Unavailable"
+        mock_client.return_value.__enter__.return_value.get.return_value = mock_response
+        client = KEVClient(cache_dir=tmp_state / "cache" / "kev")
+        client.refresh()
+    assert client.is_degraded is True
+    # Without cache file, _known_set should be empty
+    assert client.is_known_exploited("CVE-2024-3094") is False
+
+
+def test_kev_marks_degraded_on_httpx_error(tmp_state):
+    """Network failure during KEV fetch marks client as degraded."""
+    import httpx as httpx_mod
+    with patch("scripts.lib.kev_client.httpx.Client") as mock_client:
+        mock_client.return_value.__enter__.return_value.get.side_effect = httpx_mod.ConnectError("network down")
+        client = KEVClient(cache_dir=tmp_state / "cache" / "kev")
+        client.refresh()
+    assert client.is_degraded is True
