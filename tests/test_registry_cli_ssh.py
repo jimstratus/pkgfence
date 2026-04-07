@@ -96,4 +96,5 @@ def test_list_shows_ssh_targets(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "mars" in out
     assert "scanuser@mars.example" in out
-    assert "/var/www" in out
+    assert "(tier 1)" in out
+    assert "discover_paths: /var/www" in out

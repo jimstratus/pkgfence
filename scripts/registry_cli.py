@@ -175,7 +175,7 @@ def cmd_remove(args) -> int:
 
     # Match ssh by name
     before = len(reg.get("ssh", []))
-    reg["ssh"] = [s for s in reg.get("ssh", []) if s.get("name") != identifier]
+    reg["ssh"] = [s for s in reg["ssh"] if s.get("name") != identifier]
     if len(reg["ssh"]) < before:
         removed = True
 
