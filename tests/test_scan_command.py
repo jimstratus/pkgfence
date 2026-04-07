@@ -96,3 +96,49 @@ def test_run_scan_clean_exit_zero(tmp_path, tmp_state):
 
     assert exit_code == 0
     assert report_path.exists()
+
+
+def test_exit_code_3_on_invalid_registry(tmp_path, tmp_state):
+    """Configuration error -> exit 3."""
+    reg = tmp_path / "registry.yaml"
+    reg.write_text("not valid yaml: [unclosed")
+
+    from scripts.scan_command import run_scan
+
+    exit_code, _ = run_scan(registry_path=reg, state_dir=tmp_state)
+    assert exit_code == 3
+
+
+def test_exit_code_1_when_high_finding_with_default_fail_on_critical(tmp_path, tmp_state):
+    """HIGH severity finding + fail_on=critical -> exit 0 (high is below floor).
+    HIGH severity finding + fail_on=high -> exit 1."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    reg = tmp_path / "registry.yaml"
+    _write_registry(reg, workspace)
+
+    fake_finding = new_finding(
+        purl="pkg:npm/lodash@4.17.10",
+        vuln_id="GHSA-x",
+        severity="high",
+        manifest_path=str(workspace / "package-lock.json"),
+        target="workspace",
+    )
+
+    from scripts.scan_command import run_scan
+
+    with patch("scripts.scan_command.scan_all_manifests", return_value=[fake_finding]):
+        with patch("scripts.scan_command.KEVClient") as mock_kev_cls:
+            mock_kev = MagicMock()
+            mock_kev.is_degraded = False
+            mock_kev.is_known_exploited.return_value = False
+            mock_kev.refresh = MagicMock()
+            mock_kev_cls.return_value = mock_kev
+
+            # fail_on=critical -> high finding does not trigger exit 1
+            exit0, _ = run_scan(registry_path=reg, state_dir=tmp_state, fail_on="critical")
+            # fail_on=high -> high finding does trigger exit 1
+            exit1, _ = run_scan(registry_path=reg, state_dir=tmp_state, fail_on="high")
+
+    assert exit0 == 0
+    assert exit1 == 1
