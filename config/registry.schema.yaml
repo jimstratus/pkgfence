@@ -1,0 +1,98 @@
+$schema: "http://json-schema.org/draft-07/schema#"
+title: pkgfence registry
+type: object
+required: [version, roots, projects, ssh, github]
+additionalProperties: false
+properties:
+  version:
+    type: integer
+    enum: [1]
+  defaults:
+    type: object
+    properties:
+      scan_tier:
+        type: integer
+        minimum: 1
+        maximum: 3
+  roots:
+    type: array
+    items:
+      type: object
+      required: [path]
+      additionalProperties: false
+      properties:
+        path:
+          type: string
+          minLength: 1
+        tier:
+          type: integer
+          minimum: 1
+          maximum: 3
+          default: 1
+        exclude:
+          type: array
+          items:
+            type: string
+        monorepo_mode:
+          type: string
+          enum: [per_package, single_project, auto]
+          default: auto
+  projects:
+    type: array
+    items:
+      type: object
+      required: [path, name]
+      additionalProperties: false
+      properties:
+        path:
+          type: string
+        name:
+          type: string
+        tier:
+          type: integer
+          minimum: 1
+          maximum: 3
+        note:
+          type: string
+  ssh:
+    type: array
+    items:
+      type: object
+      required: [host, user, name]
+      additionalProperties: false
+      properties:
+        host: {type: string}
+        user: {type: string}
+        name: {type: string}
+        tier: {type: integer, minimum: 1, maximum: 3}
+        scanner_user: {type: string}
+        use_sudo: {type: boolean, default: false}
+        acl_groups:
+          type: array
+          items: {type: string}
+        bootstrap_method:
+          type: string
+          enum: [curl, manual]
+          default: curl
+        discover_paths:
+          type: array
+          items: {type: string}
+        note: {type: string}
+  github:
+    type: array
+    items:
+      type: object
+      required: [account, orgs]
+      additionalProperties: false
+      properties:
+        account: {type: string}
+        token_env: {type: string}
+        orgs:
+          type: array
+          items: {type: string}
+        include_private: {type: boolean, default: false}
+        tier: {type: integer, minimum: 1, maximum: 3}
+        default_mode:
+          type: string
+          enum: [api, clone]
+          default: api
