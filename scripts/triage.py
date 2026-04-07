@@ -43,3 +43,38 @@ def apply_mal_override(findings: list[Finding]) -> list[Finding]:
                 "malicious by OpenSSF Malicious Packages."
             )
     return findings
+
+
+import datetime as _datetime
+from scripts.lib.exceptions import is_exception_active
+
+
+def apply_exceptions(
+    findings: list[Finding],
+    exceptions: list[dict],
+    today: "_datetime.date | None" = None,
+) -> list[Finding]:
+    """Filter out findings matching any active exception.
+
+    Match logic for MVP: exception matches a finding if:
+    - vuln_id matches (exact string)
+    - scope is empty OR finding.manifest_path starts with exception.scope
+
+    Expired exceptions are ignored (finding survives).
+    """
+    if today is None:
+        today = _datetime.date.today()
+    active = [e for e in exceptions if is_exception_active(e, today)]
+    if not active:
+        return findings
+
+    def is_suppressed(f: Finding) -> bool:
+        for exc in active:
+            if exc.get("vuln_id") != f.get("vuln_id"):
+                continue
+            scope = exc.get("scope", "")
+            if not scope or f.get("manifest_path", "").startswith(scope):
+                return True
+        return False
+
+    return [f for f in findings if not is_suppressed(f)]

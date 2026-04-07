@@ -71,3 +71,49 @@ def test_no_mal_override_when_absent():
     out = apply_mal_override(findings)
     assert out[0]["severity"] == "medium"
     assert out[0].get("mal_flagged", False) is False
+
+
+def test_triage_filters_active_exceptions(tmp_path):
+    """An active exception suppresses the matching finding."""
+    from scripts.triage import apply_exceptions
+    import datetime
+
+    findings = [
+        new_finding(purl="pkg:npm/lodash@4.17.10", vuln_id="GHSA-xxx",
+                    severity="high", manifest_path="D:\\projects\\old",
+                    target="t"),
+        new_finding(purl="pkg:npm/foo@1.0", vuln_id="GHSA-yyy",
+                    severity="high", manifest_path="D:\\projects\\new",
+                    target="t"),
+    ]
+    exceptions = [
+        {"id": "EXC-001", "vuln_id": "GHSA-xxx", "package": "lodash",
+         "version_range": "any", "scope": "D:\\projects\\old",
+         "reason": "x", "approved_by": "r", "approved_on": "2026-04-01",
+         "expires": "2099-01-01"},
+    ]
+    today = datetime.date(2026, 4, 7)
+    result = apply_exceptions(findings, exceptions, today=today)
+    # Lodash is waived → only foo remains
+    assert len(result) == 1
+    assert "foo" in result[0]["purl"]
+
+
+def test_triage_expired_exceptions_dont_filter():
+    from scripts.triage import apply_exceptions
+    import datetime
+
+    findings = [
+        new_finding(purl="pkg:npm/lodash@4.17.10", vuln_id="GHSA-xxx",
+                    severity="high", manifest_path="D:\\projects\\old",
+                    target="t"),
+    ]
+    exceptions = [
+        {"id": "EXC-001", "vuln_id": "GHSA-xxx", "package": "lodash",
+         "version_range": "any", "scope": "D:\\projects\\old",
+         "reason": "x", "approved_by": "r", "approved_on": "2025-01-01",
+         "expires": "2025-12-31"},  # already expired
+    ]
+    today = datetime.date(2026, 4, 7)
+    result = apply_exceptions(findings, exceptions, today=today)
+    assert len(result) == 1  # finding survives because exception is expired
