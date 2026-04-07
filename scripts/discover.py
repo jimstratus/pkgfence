@@ -22,7 +22,7 @@ MANIFEST_ECOSYSTEM = {
 
 DEFAULT_EXCLUDES = frozenset({
     ".git", "node_modules", ".venv", "__pycache__", "dist", "build",
-    ".next", "target", ".nuxt", "vendor",
+    ".next", "target", ".nuxt", "vendor", "fixtures",
 })
 
 

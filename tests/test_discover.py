@@ -60,6 +60,30 @@ def test_discover_explicit_project(tmp_path):
     assert results[0]["ecosystem"] == "npm"
 
 
+def test_discover_skips_fixtures_by_default(tmp_path):
+    """v0.1.1 fix: 'fixtures' is in DEFAULT_EXCLUDES so test fixtures
+    don't get scanned as real dependencies during dogfood runs."""
+    fixtures = tmp_path / "tests" / "fixtures" / "npm" / "vulnerable"
+    fixtures.mkdir(parents=True)
+    (fixtures / "package-lock.json").write_text("{}")
+
+    real_proj = tmp_path / "src" / "myapp"
+    real_proj.mkdir(parents=True)
+    (real_proj / "package-lock.json").write_text("{}")
+
+    # Use defaults (no explicit exclude)
+    results = list(discover_manifests([{"path": str(tmp_path), "tier": 1}]))
+
+    # Should find the real project but NOT the fixtures.
+    # Use Path.relative_to() to compare against the test's tmp_path because
+    # pytest's tmp_path itself includes the test function name (which here
+    # contains the substring "fixtures") — checking the absolute path string
+    # would always match. Relative paths are stable.
+    rel_paths = [str(Path(r["path"]).relative_to(tmp_path)) for r in results]
+    assert any("myapp" in p for p in rel_paths)
+    assert not any("fixtures" in p for p in rel_paths)
+
+
 def test_discover_tier_filter(tmp_path):
     """Tier filter only scans matching-tier roots."""
     from scripts.discover import discover_manifests_full
