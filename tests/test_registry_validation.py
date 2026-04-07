@@ -137,3 +137,28 @@ def test_example_registry_validates():
     reg = load_registry(example)
     assert reg["version"] == 1
     assert len(reg["roots"]) > 0
+
+
+import subprocess
+import sys
+
+def test_registry_cli_validate_passes_on_valid(tmp_path):
+    reg = tmp_path / "registry.yaml"
+    reg.write_text("version: 1\nroots: []\nprojects: []\nssh: []\ngithub: []\n")
+    result = subprocess.run(
+        [sys.executable, "-m", "scripts.registry_cli", "--registry", str(reg), "validate"],
+        capture_output=True, text=True, cwd=str(SKILL_ROOT),
+    )
+    assert result.returncode == 0, f"stderr: {result.stderr}"
+    assert "OK" in result.stdout
+
+
+def test_registry_cli_validate_fails_on_invalid(tmp_path):
+    reg = tmp_path / "registry.yaml"
+    reg.write_text("not valid yaml: [unclosed")
+    result = subprocess.run(
+        [sys.executable, "-m", "scripts.registry_cli", "--registry", str(reg), "validate"],
+        capture_output=True, text=True, cwd=str(SKILL_ROOT),
+    )
+    assert result.returncode == 3  # configuration error
+    assert "error" in result.stderr.lower()
