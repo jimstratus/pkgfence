@@ -1,0 +1,20 @@
+"""Test the Finding TypedDict contract."""
+from scripts.lib.types import Finding, new_finding
+
+
+def test_new_finding_has_all_required_fields():
+    f = new_finding(
+        purl="pkg:npm/lodash@4.17.20",
+        vuln_id="GHSA-jf85-cpcp-j695",
+        severity="high",
+        manifest_path="D:/projects/foo/package-lock.json",
+    )
+    assert f["purl"] == "pkg:npm/lodash@4.17.20"
+    assert f["vuln_id"] == "GHSA-jf85-cpcp-j695"
+    assert f["severity"] == "high"
+    assert f["manifest_path"] == "D:/projects/foo/package-lock.json"
+    # Defaults for optional fields
+    assert f["aliases"] == []
+    assert f["actively_exploited"] is False
+    assert f["diff_status"] == "NEW"
+    assert f["status"] == "OK"
