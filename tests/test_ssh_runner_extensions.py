@@ -36,7 +36,8 @@ def test_ssh_runner_use_sudo_prefixes_command_with_sudo_n():
         mock_run.return_value = MagicMock(returncode=0, stdout="ok\n", stderr="")
         runner.run(["osv-scanner", "-L", "/tmp/lock.json", "--format", "json"])
     args = mock_run.call_args[0][0]
-    # The last 6 args are the command; find where 'sudo' starts
+    # Use index-based search instead of positional arithmetic —
+    # the position of 'sudo' shifts depending on whether key_file is set.
     assert "sudo" in args
     sudo_idx = args.index("sudo")
     assert args[sudo_idx + 1] == "-n"
