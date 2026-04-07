@@ -176,3 +176,73 @@ def test_registry_cli_add_root(tmp_path):
     assert result.returncode == 0, f"stderr: {result.stderr}"
     reg_data = load_registry(reg)
     assert any(r["path"] == "D:\\projects" for r in reg_data["roots"])
+
+
+def test_registry_cli_add_project(tmp_path):
+    reg = tmp_path / "registry.yaml"
+    reg.write_text("version: 1\nroots: []\nprojects: []\nssh: []\ngithub: []\n")
+    result = subprocess.run(
+        [sys.executable, "-m", "scripts.registry_cli",
+         "--registry", str(reg),
+         "add-project", "C:\\eotir", "--name", "eotir-main", "--tier", "1"],
+        capture_output=True, text=True, cwd=str(SKILL_ROOT),
+    )
+    assert result.returncode == 0, f"stderr: {result.stderr}"
+    reg_data = load_registry(reg)
+    assert any(p["name"] == "eotir-main" for p in reg_data["projects"])
+    assert reg_data["projects"][0]["path"] == "C:\\eotir"
+
+
+def test_registry_cli_remove_root(tmp_path):
+    reg = tmp_path / "registry.yaml"
+    reg.write_text("""version: 1
+roots:
+  - {path: "D:\\\\projects", tier: 1}
+  - {path: "C:\\\\eotir\\\\projects", tier: 1}
+projects: []
+ssh: []
+github: []
+""")
+    result = subprocess.run(
+        [sys.executable, "-m", "scripts.registry_cli",
+         "--registry", str(reg),
+         "remove", "D:\\projects"],
+        capture_output=True, text=True, cwd=str(SKILL_ROOT),
+    )
+    assert result.returncode == 0, f"stderr: {result.stderr}"
+    reg_data = load_registry(reg)
+    assert len(reg_data["roots"]) == 1
+    assert reg_data["roots"][0]["path"] == "C:\\eotir\\projects"
+
+
+def test_registry_cli_remove_project(tmp_path):
+    reg = tmp_path / "registry.yaml"
+    reg.write_text("""version: 1
+roots: []
+projects:
+  - {path: "C:\\\\eotir", name: eotir-main, tier: 1}
+ssh: []
+github: []
+""")
+    result = subprocess.run(
+        [sys.executable, "-m", "scripts.registry_cli",
+         "--registry", str(reg),
+         "remove", "eotir-main"],
+        capture_output=True, text=True, cwd=str(SKILL_ROOT),
+    )
+    assert result.returncode == 0, f"stderr: {result.stderr}"
+    reg_data = load_registry(reg)
+    assert len(reg_data["projects"]) == 0
+
+
+def test_registry_cli_remove_nonexistent_fails(tmp_path):
+    reg = tmp_path / "registry.yaml"
+    reg.write_text("version: 1\nroots: []\nprojects: []\nssh: []\ngithub: []\n")
+    result = subprocess.run(
+        [sys.executable, "-m", "scripts.registry_cli",
+         "--registry", str(reg),
+         "remove", "does-not-exist"],
+        capture_output=True, text=True, cwd=str(SKILL_ROOT),
+    )
+    assert result.returncode == 3
+    assert "not found" in result.stderr.lower()
