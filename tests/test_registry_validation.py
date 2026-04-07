@@ -130,3 +130,10 @@ def test_load_missing_version_raises(tmp_path):
     reg_path.write_text("roots: []\nprojects: []\nssh: []\ngithub: []\n")
     with pytest.raises(RegistryError, match="version"):
         load_registry(reg_path)
+
+
+def test_example_registry_validates():
+    example = SKILL_ROOT / "config" / "registry.example.yaml"
+    reg = load_registry(example)
+    assert reg["version"] == 1
+    assert len(reg["roots"]) > 0

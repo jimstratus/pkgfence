@@ -1,0 +1,26 @@
+# pkgfence registry - copy this to state/registry.yaml and edit.
+# All paths on Windows MUST use either double-backslashes ('D:\\projects')
+# or single-quoted strings ('D:\projects'). Forward slashes also work.
+version: 1
+
+defaults:
+  scan_tier: 1
+
+roots:
+  - path: 'D:\projects'
+    tier: 1
+    exclude: [".git", "node_modules", ".venv", "__pycache__", "dist", "build", ".next", "target"]
+    monorepo_mode: per_package
+  - path: 'C:\eotir\projects'
+    tier: 1
+    exclude: [".git", "node_modules", ".venv"]
+
+projects:
+  - path: 'C:\eotir'
+    name: eotir-main
+    tier: 1
+    note: "Vite/TS project that lives next to projects/ subdir"
+
+# SSH and GitHub support is added in Phase 2 - leave empty for Phase 1
+ssh: []
+github: []
