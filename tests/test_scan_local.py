@@ -155,3 +155,71 @@ def test_scan_manifest_falls_back_to_osv_api_when_scanner_missing(tmp_path):
     assert len(findings) == 1
     assert findings[0]["vuln_id"] == "GHSA-jf85-cpcp-j695"
     assert findings[0]["scanner_source"] == "osv-api"
+
+
+def test_scan_manifest_safely_continues_on_empty_lockfile():
+    """EmptyLockfileError -> SCAN_ERROR record, no exception propagates."""
+    from scripts.scan_local import scan_manifest_safely, EmptyLockfileError
+
+    with patch("scripts.scan_local.detect_scanner", return_value="2.3.3"):
+        with patch("scripts.scan_local.run_osv_scanner_lockfile",
+                   side_effect=EmptyLockfileError("no package sources found")):
+            findings = scan_manifest_safely({
+                "path": "/tmp/fake/package-lock.json",
+                "ecosystem": "npm",
+                "target": "fake",
+                "manifest_hash": "abc",
+            })
+    assert len(findings) == 1
+    assert findings[0]["status"] == "SCAN_ERROR"
+    assert findings[0]["target"] == "fake"
+    assert "no package sources found" in findings[0].get("description", "").lower()
+
+
+def test_scan_manifest_safely_continues_on_scanner_error():
+    """ScannerError -> SCAN_ERROR record, no exception propagates."""
+    from scripts.scan_local import scan_manifest_safely
+
+    with patch("scripts.scan_local.detect_scanner", return_value="2.3.3"):
+        with patch("scripts.scan_local.run_osv_scanner_lockfile",
+                   side_effect=ScannerError("scanner crashed")):
+            findings = scan_manifest_safely({
+                "path": "/tmp/fake/package-lock.json",
+                "ecosystem": "npm",
+                "target": "fake",
+                "manifest_hash": "abc",
+            })
+    assert len(findings) == 1
+    assert findings[0]["status"] == "SCAN_ERROR"
+
+
+def test_scan_all_manifests_continues_on_one_bad_target():
+    """One target failing must not block other targets from scanning."""
+    from scripts.scan_local import scan_all_manifests
+    from scripts.lib.types import new_finding
+
+    manifests = [
+        {"path": "/tmp/good/package-lock.json", "ecosystem": "npm", "target": "good", "manifest_hash": "1"},
+        {"path": "/tmp/bad/package-lock.json", "ecosystem": "npm", "target": "bad", "manifest_hash": "2"},
+    ]
+
+    def mock_scan(manifest):
+        if manifest["target"] == "bad":
+            raise ScannerError("simulated failure")
+        return [new_finding(
+            purl="pkg:npm/lodash@4.17.10",
+            vuln_id="GHSA-jf85-cpcp-j695",
+            severity="high",
+            manifest_path=manifest["path"],
+            target=manifest["target"],
+        )]
+
+    with patch("scripts.scan_local.scan_manifest", side_effect=mock_scan):
+        all_findings = scan_all_manifests(manifests)
+
+    # Should have 2 findings: one good (real vuln) + one SCAN_ERROR for bad
+    targets = {f["target"] for f in all_findings}
+    assert targets == {"good", "bad"}
+    bad_findings = [f for f in all_findings if f["target"] == "bad"]
+    assert len(bad_findings) == 1
+    assert bad_findings[0]["status"] == "SCAN_ERROR"

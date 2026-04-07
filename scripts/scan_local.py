@@ -291,3 +291,37 @@ def scan_manifest(manifest: dict) -> list[Finding]:
                 scanner_source="osv-api",
             ))
     return findings
+
+
+def scan_manifest_safely(manifest: dict) -> list[Finding]:
+    """Wrapper around scan_manifest that catches ScannerError /
+    EmptyLockfileError and returns a SCAN_ERROR Finding instead of
+    propagating the exception.
+
+    M3 critic gap fix: a single bad target must not block the entire scan.
+    The orchestrator continues with other targets and the bad one shows
+    up as a SCAN_ERROR record in the report.
+    """
+    try:
+        return scan_manifest(manifest)
+    except (ScannerError, EmptyLockfileError, OSError) as e:
+        # Emit a SCAN_ERROR Finding so the report shows what failed
+        return [new_finding(
+            purl=f"pkg:scan-error/{manifest.get('target', 'unknown')}@-",
+            vuln_id="SCAN_ERROR",
+            severity="info",
+            manifest_path=manifest.get("path", ""),
+            target=manifest.get("target", ""),
+            status="SCAN_ERROR",
+            description=str(e),
+        )]
+
+
+def scan_all_manifests(manifests: list[dict]) -> list[Finding]:
+    """Scan a list of manifests. Per-manifest failures are isolated via
+    scan_manifest_safely so one bad lockfile doesn't block the rest.
+    """
+    all_findings: list[Finding] = []
+    for manifest in manifests:
+        all_findings.extend(scan_manifest_safely(manifest))
+    return all_findings
