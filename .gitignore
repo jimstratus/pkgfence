@@ -34,3 +34,6 @@ _merged.md
 # Logs (pkgfence's own runtime logs once logger is implemented)
 logs/
 *.log
+
+# OMC plugin runtime state (Claude Code plugin, not part of pkgfence)
+.omc/
