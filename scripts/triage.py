@@ -78,3 +78,18 @@ def apply_exceptions(
         return False
 
     return [f for f in findings if not is_suppressed(f)]
+
+
+SEVERITY_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+
+
+def sort_findings(findings: list[Finding]) -> list[Finding]:
+    """Sort findings deterministically: severity first (critical → info),
+    then alphabetically by purl, then by vuln_id."""
+    def key(f: Finding):
+        return (
+            SEVERITY_RANK.get(f.get("severity", "medium"), 99),
+            f.get("purl", ""),
+            f.get("vuln_id", ""),
+        )
+    return sorted(findings, key=key)

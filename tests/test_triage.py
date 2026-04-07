@@ -117,3 +117,26 @@ def test_triage_expired_exceptions_dont_filter():
     today = datetime.date(2026, 4, 7)
     result = apply_exceptions(findings, exceptions, today=today)
     assert len(result) == 1  # finding survives because exception is expired
+
+
+def test_sort_findings_severity_then_alphabetical():
+    """Sort by severity (critical > high > medium > low > info), then
+    alphabetically by purl. Deterministic: same input → same order."""
+    from scripts.triage import sort_findings
+
+    findings = [
+        new_finding(purl="pkg:npm/zzz@1.0", vuln_id="A", severity="medium",
+                    manifest_path="/tmp/a", target="t"),
+        new_finding(purl="pkg:npm/aaa@1.0", vuln_id="B", severity="critical",
+                    manifest_path="/tmp/a", target="t"),
+        new_finding(purl="pkg:npm/bbb@1.0", vuln_id="C", severity="critical",
+                    manifest_path="/tmp/a", target="t"),
+        new_finding(purl="pkg:npm/ccc@1.0", vuln_id="D", severity="low",
+                    manifest_path="/tmp/a", target="t"),
+    ]
+    sorted_list = sort_findings(findings)
+    severities = [f["severity"] for f in sorted_list]
+    assert severities == ["critical", "critical", "medium", "low"]
+    # Alphabetical within severity
+    purls_critical = [f["purl"] for f in sorted_list if f["severity"] == "critical"]
+    assert purls_critical == ["pkg:npm/aaa@1.0", "pkg:npm/bbb@1.0"]
