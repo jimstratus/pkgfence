@@ -1,0 +1,10 @@
+{
+    "osv-scanner": {
+        "version": "2.3.3",
+        "sha256": "8a41dcb9377937e78299fbb22f494f69019002b79a0c18d174de621b0638ae46",
+        "installed_via": "scoop main/osv-scanner",
+        "installed_on": "2026-04-07",
+        "verification_method": "scoop manifest hash pin (G9 soft guard, see design doc)",
+        "notes": "SHA256 is of the actual binary at ~/scoop/apps/osv-scanner/current/osv-scanner.exe, NOT the scoop shim wrapper. Resolve the real path before hashing at runtime. Binary size: 53773824 bytes. Scanner engine: osv-scalibr 0.4.2, commit b97d1de7d8c3c7de8c11308b3d9cb5bbf3f7a0e9, built 2026-02-11T23:42:50Z."
+    }
+}
