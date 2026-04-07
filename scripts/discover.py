@@ -80,3 +80,51 @@ def _walk_with_depth(root: Path, excludes: set, max_depth: int) -> Iterator[Path
         except PermissionError:
             pass
     yield from walk(root, 0)
+
+
+def discover_manifests_full(
+    roots: list[dict],
+    projects: list[dict],
+    tier_filter: set[int] | None = None,
+    max_depth: int = 4,
+    max_files: int = 10000,
+) -> Iterator[dict]:
+    """Walk both roots[] (recursive walk) and projects[] (explicit single-project paths).
+
+    Args:
+        roots: list of root specs (path, tier, exclude). Walked recursively.
+        projects: list of project specs (path, name, tier). Each is scanned
+            as a standalone single-project (not walked further than max_depth=2).
+        tier_filter: if provided, only entries with tier in this set are scanned.
+        max_depth: walk depth for roots
+        max_files: total file count cap across all walks
+
+    Yields the same dict shape as discover_manifests().
+    """
+    # Filter roots by tier
+    if tier_filter is not None:
+        filtered_roots = [r for r in roots if r.get("tier", 1) in tier_filter]
+    else:
+        filtered_roots = list(roots)
+    yield from discover_manifests(filtered_roots, max_depth=max_depth, max_files=max_files)
+
+    # Filter projects by tier and scan each as a shallow root
+    if tier_filter is not None:
+        filtered_projects = [p for p in projects if p.get("tier", 1) in tier_filter]
+    else:
+        filtered_projects = list(projects)
+
+    for proj in filtered_projects:
+        proj_path = Path(proj["path"])
+        if not proj_path.exists():
+            continue
+        # Walk the project shallowly (depth 2 — top + 1 subdir)
+        for path in _walk_with_depth(proj_path, set(DEFAULT_EXCLUDES), max_depth=2):
+            if path.name in MANIFEST_ECOSYSTEM:
+                yield {
+                    "target": proj.get("name", proj_path.name),
+                    "path": str(path),
+                    "ecosystem": MANIFEST_ECOSYSTEM[path.name],
+                    "manifest_hash": _hash_file(path),
+                    "tier": proj.get("tier", 1),
+                }
