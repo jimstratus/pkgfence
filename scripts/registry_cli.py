@@ -101,6 +101,50 @@ def cmd_add_project(args) -> int:
     return 0
 
 
+def cmd_add_ssh(args) -> int:
+    reg_path = Path(args.registry)
+    try:
+        reg = load_registry(reg_path) if reg_path.exists() else {
+            "version": 1, "roots": [], "projects": [], "ssh": [], "github": [],
+        }
+    except RegistryError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 3
+
+    # Reject duplicate names
+    existing = {s.get("name") for s in reg.get("ssh", [])}
+    if args.name in existing:
+        print(f"Error: ssh target {args.name!r} already exists", file=sys.stderr)
+        return 3
+
+    entry: dict = {
+        "name": args.name,
+        "host": args.host,
+        "user": args.user,
+    }
+    if args.tier is not None:
+        entry["tier"] = args.tier
+    if args.key_file:
+        entry["key_file"] = args.key_file
+    if args.scanner_user:
+        entry["scanner_user"] = args.scanner_user
+    if args.use_sudo:
+        entry["use_sudo"] = True
+    if args.discover_path:
+        entry["discover_paths"] = list(args.discover_path)
+    if args.note:
+        entry["note"] = args.note
+
+    reg.setdefault("ssh", []).append(entry)
+    try:
+        save_registry_atomic(reg_path, reg)
+    except RegistryError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 3
+    print(f"Added ssh target: {args.name} ({args.user}@{args.host})")
+    return 0
+
+
 def cmd_remove(args) -> int:
     """Remove a target by path (for roots) or name (for projects, ssh, github)."""
     reg_path = Path(args.registry)
@@ -161,6 +205,20 @@ def main(argv=None) -> int:
     add_project.add_argument("--tier", type=int, default=1, choices=[1, 2, 3])
     add_project.add_argument("--note", default=None, help="Optional note")
 
+    add_ssh = sub.add_parser("add-ssh", help="Add an SSH target")
+    add_ssh.add_argument("--name", required=True, help="Short name (must be unique)")
+    add_ssh.add_argument("--host", required=True, help="Hostname or IP")
+    add_ssh.add_argument("--user", required=True, help="SSH login user")
+    add_ssh.add_argument("--tier", type=int, default=None, choices=[1, 2, 3])
+    add_ssh.add_argument("--key-file", default=None, help="Path to ssh private key (-i)")
+    add_ssh.add_argument("--scanner-user", default=None,
+                         help="User to run the scanner as (defaults to --user)")
+    add_ssh.add_argument("--use-sudo", action="store_true",
+                         help="Prefix scanner commands with `sudo -n`")
+    add_ssh.add_argument("--discover-path", action="append", default=None,
+                         help="Remote path to walk for manifests (repeatable)")
+    add_ssh.add_argument("--note", default=None, help="Optional note")
+
     remove_cmd = sub.add_parser("remove", help="Remove a target by path or name")
     remove_cmd.add_argument("identifier", help="Path (for roots) or name (for projects/ssh/github)")
 
@@ -173,6 +231,8 @@ def main(argv=None) -> int:
         return cmd_add_root(args)
     if args.cmd == "add-project":
         return cmd_add_project(args)
+    if args.cmd == "add-ssh":
+        return cmd_add_ssh(args)
     if args.cmd == "remove":
         return cmd_remove(args)
     parser.print_help()
