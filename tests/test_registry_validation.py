@@ -94,3 +94,39 @@ def test_unknown_field_in_root_raises():
     }
     with pytest.raises(jsonschema.ValidationError):
         jsonschema.validate(instance=bad, schema=schema)
+
+
+from scripts.lib.registry import load_registry, RegistryError
+
+
+def test_load_valid_registry(tmp_path):
+    reg_path = tmp_path / "registry.yaml"
+    # Use double-quoted YAML so escape semantics are explicit:
+    # "D:\\\\projects" in Python is the 4-char string D:\\projects,
+    # which YAML double-quoted parses as the 2-char path D:\projects.
+    reg_path.write_text("""
+version: 1
+roots:
+  - path: "D:\\\\projects"
+    tier: 1
+projects: []
+ssh: []
+github: []
+""")
+    reg = load_registry(reg_path)
+    assert reg["version"] == 1
+    assert reg["roots"][0]["path"] == "D:\\projects"
+
+
+def test_load_invalid_registry_raises(tmp_path):
+    reg_path = tmp_path / "registry.yaml"
+    reg_path.write_text("not valid yaml: [unclosed")
+    with pytest.raises(RegistryError):
+        load_registry(reg_path)
+
+
+def test_load_missing_version_raises(tmp_path):
+    reg_path = tmp_path / "registry.yaml"
+    reg_path.write_text("roots: []\nprojects: []\nssh: []\ngithub: []\n")
+    with pytest.raises(RegistryError, match="version"):
+        load_registry(reg_path)
