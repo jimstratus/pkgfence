@@ -1,0 +1,49 @@
+# pkgfence default configuration.
+# Every value here is tunable by the user editing this file — do NOT hardcode
+# these in Python modules. That's the lesson from critic gap C3.
+
+severity:
+  fail_threshold: critical       # exit code 1 at or above this level
+  report_threshold: medium       # below this, collapsed in default output
+  always_show_kev: true
+
+triage:
+  weight_cvss: 0.4
+  weight_epss: 0.3
+  weight_kev: 0.3
+  mal_prefix_override: critical  # MAL-* IDs → critical regardless of CVSS
+  two_pass_fp_filter: true
+
+scanners:
+  npm:    [osv-scanner]          # Phase 1: osv-scanner only
+  python: [osv-scanner]
+  fallback: osv-api              # direct OSV querybatch API when scanner missing
+  minimum_versions:
+    osv-scanner: "2.0.0"
+
+threat_intel:
+  enabled_tiers: [authoritative, kev]   # Phase 1: OSV + KEV only
+  news_in_routine_scans: false
+  cache_ttls:
+    osv: 6h
+    kev: 24h
+  degraded_mode_after_retries: 3
+
+reports:
+  format: markdown
+  inline_summary_max_findings: 10
+  one_card_per_finding: true
+  include_educational_paragraph: true
+  calibrated_trust_disclaimer: true
+  direct_vs_transitive_labeling: true
+
+exit_codes:
+  clean: 0
+  findings: 1
+  scanner_error: 2
+  config_error: 3
+
+state_retention:
+  reports_keep_days: 365
+  audit_jsonl_keep: forever
+  cache_keep_days: 14
