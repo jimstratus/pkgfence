@@ -53,10 +53,13 @@ class OSVClient:
         timeout: float = 30.0,
         cache_dir: Optional[Path] = None,
         cache_ttl_hours: float = 6.0,
+        max_429_retries: int = 3,
     ):
         self.timeout = timeout
         self.cache_dir = Path(cache_dir) if cache_dir else None
         self.cache_ttl_seconds = cache_ttl_hours * 3600
+        self.max_429_retries = max_429_retries
+        self.is_degraded = False
         if self.cache_dir:
             self.cache_dir.mkdir(parents=True, exist_ok=True)
 
@@ -118,10 +121,24 @@ class OSVClient:
             return cached
 
         with httpx.Client(http2=True, timeout=self.timeout) as client:
-            try:
-                resp = client.post(OSV_QUERYBATCH_URL, json={"queries": queries})
-            except httpx.HTTPError as e:
-                raise OSVError(f"OSV request failed: {e}") from e
+            for attempt in range(self.max_429_retries + 1):
+                try:
+                    resp = client.post(OSV_QUERYBATCH_URL, json={"queries": queries})
+                except httpx.HTTPError as e:
+                    raise OSVError(f"OSV request failed: {e}") from e
+                if resp.status_code == 429:
+                    if attempt < self.max_429_retries:
+                        # exponential backoff: 1s, 2s, 4s
+                        backoff = 2 ** attempt
+                        log.warning("OSV 429 (attempt %d), backing off %ds", attempt + 1, backoff)
+                        time.sleep(backoff)
+                        continue
+                    else:
+                        self.is_degraded = True
+                        raise OSVError(
+                            f"OSV rate-limited after {self.max_429_retries} retries; marking feed degraded"
+                        )
+                break  # success or non-429 error
         if resp.status_code != 200:
             raise OSVError(f"OSV returned {resp.status_code}: {resp.text[:500]}")
         data = resp.json()

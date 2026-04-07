@@ -79,3 +79,17 @@ def test_osv_cache_readable_fallback_on_ioerror(tmp_state, monkeypatch):
         results = client.querybatch(queries)
     # Restored or not, the call should have produced results (either via fallback or via fresh fetch)
     assert results == [{"vulns": []}]
+
+
+def test_osv_429_marks_degraded_after_max_retries(monkeypatch):
+    """3x 429 in a row -> mark degraded mode and stop retrying."""
+    monkeypatch.setattr("scripts.lib.osv_client.time.sleep", lambda s: None)
+    client = OSVClient(max_429_retries=3)
+    with patch("scripts.lib.osv_client.httpx.Client") as mock_client:
+        mock_response = MagicMock()
+        mock_response.status_code = 429
+        mock_response.text = "Too Many Requests"
+        mock_client.return_value.__enter__.return_value.post.return_value = mock_response
+        with pytest.raises(OSVError, match="degraded"):
+            client.querybatch([{"package": {"name": "lodash", "ecosystem": "npm"}, "version": "4.17.21"}])
+    assert client.is_degraded is True
