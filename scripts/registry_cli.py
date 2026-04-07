@@ -50,6 +50,28 @@ def cmd_list(args) -> int:
     return 0
 
 
+def cmd_add_root(args) -> int:
+    reg_path = Path(args.registry)
+    try:
+        reg = load_registry(reg_path) if reg_path.exists() else {
+            "version": 1, "roots": [], "projects": [], "ssh": [], "github": [],
+        }
+    except RegistryError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 3
+    new_root = {"path": args.path, "tier": args.tier}
+    if args.exclude:
+        new_root["exclude"] = args.exclude
+    reg.setdefault("roots", []).append(new_root)
+    try:
+        save_registry_atomic(reg_path, reg)
+    except RegistryError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 3
+    print(f"Added root: {args.path} (tier {args.tier})")
+    return 0
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="pkgfence registry")
     parser.add_argument(
@@ -59,11 +81,19 @@ def main(argv=None) -> int:
     sub = parser.add_subparsers(dest="cmd", required=True)
     sub.add_parser("validate", help="Validate registry against schema")
     sub.add_parser("list", help="Print registered targets")
+
+    add_root = sub.add_parser("add-root", help="Add a local parent directory to scan")
+    add_root.add_argument("path", help="Path to the parent directory")
+    add_root.add_argument("--tier", type=int, default=1, choices=[1, 2, 3])
+    add_root.add_argument("--exclude", action="append", default=None)
+
     args = parser.parse_args(argv)
     if args.cmd == "validate":
         return cmd_validate(args)
     if args.cmd == "list":
         return cmd_list(args)
+    if args.cmd == "add-root":
+        return cmd_add_root(args)
     parser.print_help()
     return 2
 

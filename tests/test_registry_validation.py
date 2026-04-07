@@ -162,3 +162,17 @@ def test_registry_cli_validate_fails_on_invalid(tmp_path):
     )
     assert result.returncode == 3  # configuration error
     assert "error" in result.stderr.lower()
+
+
+def test_registry_cli_add_root(tmp_path):
+    reg = tmp_path / "registry.yaml"
+    reg.write_text("version: 1\nroots: []\nprojects: []\nssh: []\ngithub: []\n")
+    result = subprocess.run(
+        [sys.executable, "-m", "scripts.registry_cli",
+         "--registry", str(reg),
+         "add-root", "D:\\projects", "--tier", "1"],
+        capture_output=True, text=True, cwd=str(SKILL_ROOT),
+    )
+    assert result.returncode == 0, f"stderr: {result.stderr}"
+    reg_data = load_registry(reg)
+    assert any(r["path"] == "D:\\projects" for r in reg_data["roots"])
