@@ -42,3 +42,61 @@ def detect_scanner(name: str = "osv-scanner") -> Optional[str]:
     if match:
         return match.group(1)
     return None
+
+
+class ScannerError(Exception):
+    """osv-scanner failed for an unexpected reason (exit code other than
+    0, 1, 127, or 128)."""
+
+
+class EmptyLockfileError(ScannerError):
+    """Special case: lockfile is empty or malformed.
+    osv-scanner exit 128 with 'No package sources found' on stderr.
+    Task 8.5 catches this and emits a SCAN_ERROR Finding."""
+
+
+def run_osv_scanner_lockfile(lockfile_path: str) -> str:
+    """Run `osv-scanner -L <lockfile_path> --format json` and return raw JSON.
+
+    Exit code semantics (verified against osv-scanner v2.3.3):
+        0   -> success, no vulns. JSON returned.
+        1   -> success, vulns found. JSON returned.
+        2   -> real scanner error. ScannerError raised.
+        127 -> binary not found. ScannerError raised.
+        128 -> empty/malformed lockfile. EmptyLockfileError raised.
+
+    Returns:
+        Raw JSON string from osv-scanner stdout.
+
+    Raises:
+        ScannerError: on exit 2 or 127 or unknown non-success exit
+        EmptyLockfileError: on exit 128 (handle via Task 8.5)
+    """
+    try:
+        result = subprocess.run(
+            ["osv-scanner", "-L", lockfile_path, "--format", "json"],
+            capture_output=True,
+            text=True,
+            timeout=300,
+            check=False,
+        )
+    except FileNotFoundError as e:
+        raise ScannerError(f"osv-scanner binary not found: {e}") from e
+    except subprocess.TimeoutExpired as e:
+        raise ScannerError(f"osv-scanner timed out scanning {lockfile_path}") from e
+
+    if result.returncode in OSV_SUCCESS_EXIT_CODES:
+        return result.stdout
+    if result.returncode == 128:
+        raise EmptyLockfileError(
+            f"osv-scanner: no package sources found in {lockfile_path} "
+            f"(exit 128, stderr: {result.stderr.strip()})"
+        )
+    if result.returncode == 127:
+        raise ScannerError(
+            f"osv-scanner binary not found in PATH (exit 127)"
+        )
+    raise ScannerError(
+        f"osv-scanner failed with exit {result.returncode} on {lockfile_path}: "
+        f"{result.stderr.strip()[:500]}"
+    )
