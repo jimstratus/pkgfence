@@ -21,3 +21,25 @@ def dedup_findings(findings: list[Finding]) -> list[Finding]:
         seen.add(key)
         result.append(f)
     return result
+
+
+def apply_mal_override(findings: list[Finding]) -> list[Finding]:
+    """Round 2 finding R2-9: MAL-* prefix indicates a malicious package
+    record from OpenSSF Malicious Packages. Bypass severity triage and
+    override to critical regardless of CVSS.
+
+    Critic gap fix: check BOTH the primary id field AND the aliases[]
+    array. Many findings have a primary GHSA id with the MAL-* in aliases.
+    """
+    for f in findings:
+        primary = f.get("vuln_id", "")
+        aliases = f.get("aliases", [])
+        all_ids = [primary] + list(aliases)
+        if any(vid.startswith("MAL-") for vid in all_ids if vid):
+            f["severity"] = "critical"
+            f["mal_flagged"] = True
+            f["remediation"] = (
+                "Remove this package immediately — it is flagged as "
+                "malicious by OpenSSF Malicious Packages."
+            )
+    return findings
