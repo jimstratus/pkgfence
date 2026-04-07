@@ -1,6 +1,7 @@
 """Tests for Phase 2 extensions to SSHRunner: key_file, scanner_user, use_sudo.
 
 These must preserve S1 (no silent fallback) and S3 (command allowlist)."""
+import pytest
 from unittest.mock import patch, MagicMock
 
 from scripts.lib.ssh_runner import SSHRunner, SSHUnreachableError
@@ -25,3 +26,35 @@ def test_ssh_runner_without_key_file_omits_i_flag():
         runner.run(["find", "/tmp", "-name", "x"])
     args = mock_run.call_args[0][0]
     assert "-i" not in args
+
+
+def test_ssh_runner_use_sudo_prefixes_command_with_sudo_n():
+    """use_sudo=True prefixes the remote command with 'sudo -n'.
+    -n is required: never prompt for password. If sudo lacks nopasswd, fail fast."""
+    runner = SSHRunner(host="h.example", user="u", use_sudo=True)
+    with patch("scripts.lib.ssh_runner.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stdout="ok\n", stderr="")
+        runner.run(["osv-scanner", "-L", "/tmp/lock.json", "--format", "json"])
+    args = mock_run.call_args[0][0]
+    # The last 6 args are the command; find where 'sudo' starts
+    assert "sudo" in args
+    sudo_idx = args.index("sudo")
+    assert args[sudo_idx + 1] == "-n"
+    assert args[sudo_idx + 2] == "osv-scanner"
+
+
+def test_ssh_runner_use_sudo_still_enforces_allowlist():
+    """S3 preserved: use_sudo does not let disallowed commands through."""
+    runner = SSHRunner(host="h.example", user="u", use_sudo=True)
+    with pytest.raises(ValueError, match="not in SSH allowlist"):
+        runner.run(["mkdir", "/tmp/foo"])
+
+
+def test_ssh_runner_default_no_sudo_no_prefix():
+    """Default (use_sudo=False): no sudo prefix."""
+    runner = SSHRunner(host="h.example", user="u")
+    with patch("scripts.lib.ssh_runner.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stdout="ok\n", stderr="")
+        runner.run(["find", "/tmp", "-name", "x"])
+    args = mock_run.call_args[0][0]
+    assert "sudo" not in args

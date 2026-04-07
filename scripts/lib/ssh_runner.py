@@ -21,10 +21,17 @@ ALLOWED_COMMANDS = frozenset({
 
 
 class SSHRunner:
-    def __init__(self, host: str, user: str, key_file: str | None = None):
+    def __init__(
+        self,
+        host: str,
+        user: str,
+        key_file: str | None = None,
+        use_sudo: bool = False,
+    ):
         self.host = host
         self.user = user
         self.key_file = key_file
+        self.use_sudo = use_sudo
 
     def run(self, command: List[str]) -> str:
         """Run a command on the remote via SSH. Raises SSHUnreachableError if
@@ -35,6 +42,9 @@ class SSHRunner:
             raise ValueError(
                 f"Command {command[0]!r} not in SSH allowlist {sorted(ALLOWED_COMMANDS)}"
             )
+        if self.use_sudo:
+            # `-n` = never prompt; if sudo lacks NOPASSWD for this cmd, fail fast
+            command = ["sudo", "-n"] + command
         ssh_cmd = ["ssh", "-o", "ConnectTimeout=10",
                    "-o", "BatchMode=yes"]  # never prompt for password
         if self.key_file:
