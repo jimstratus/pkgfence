@@ -29,3 +29,34 @@ def test_ssh_command_allowlist_allows_known_commands():
     for allowed in ["find", "cat", "sha256sum", "ls", "stat", "osv-scanner"]:
         with pytest.raises(SSHUnreachableError):  # not ValueError
             runner.run([allowed, "--version"])
+
+
+import re
+from pathlib import Path
+
+SKILL_ROOT = Path(__file__).parent.parent
+
+# S2: forbidden subprocess invocations across the whole script tree
+FORBIDDEN_INSTALL_PATTERNS = [
+    r'\bnpm\s+install\b',
+    r'\bnpm\s+i\b',
+    r'\bpnpm\s+install\b',
+    r'\byarn\s+install\b',
+    r'\byarn\s+add\b',
+    r'\bpip\s+install\b(?!.*--dry-run)(?!.*--require-hashes)',
+    r'\bcargo\s+install\b',
+    r'\bgem\s+install\b',
+    r'\bbundle\s+install\b',
+    r'\bgo\s+install\b',
+]
+
+def test_no_package_manager_install_anywhere_in_scripts():
+    """S2: No script in scripts/ may invoke a package-manager install command.
+    pkgfence reads lockfiles; it never installs."""
+    violations = []
+    for py_file in (SKILL_ROOT / "scripts").rglob("*.py"):
+        text = py_file.read_text(encoding="utf-8")
+        for pattern in FORBIDDEN_INSTALL_PATTERNS:
+            if re.search(pattern, text):
+                violations.append(f"{py_file}: matches {pattern}")
+    assert not violations, "S2 violation: " + "; ".join(violations)
