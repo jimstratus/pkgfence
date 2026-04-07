@@ -121,3 +121,37 @@ def test_parse_osv_output_extracts_findings():
 def test_parse_osv_output_empty_results_returns_empty_list():
     findings = parse_osv_output(SAMPLE_OSV_OUTPUT_NO_VULNS, manifest_path="/tmp/foo", target="t")
     assert findings == []
+
+
+def test_scan_manifest_falls_back_to_osv_api_when_scanner_missing(tmp_path):
+    """When osv-scanner isn't installed, scan_manifest reads the lockfile
+    and queries OSV API directly via OSVClient."""
+    from scripts.scan_local import scan_manifest
+
+    lockfile = tmp_path / "package-lock.json"
+    lockfile.write_text("""{
+  "name": "test", "version": "1.0.0", "lockfileVersion": 3,
+  "packages": {
+    "": {"name": "test", "version": "1.0.0"},
+    "node_modules/lodash": {"version": "4.17.10"}
+  }
+}""")
+
+    fake_osv_results = [{
+        "vulns": [{"id": "GHSA-jf85-cpcp-j695", "summary": "Prototype pollution"}]
+    }]
+
+    # detect_scanner returns None (not installed) -> fall back to OSVClient
+    with patch("scripts.scan_local.detect_scanner", return_value=None):
+        with patch("scripts.scan_local.OSVClient") as mock_client_cls:
+            mock_instance = MagicMock()
+            mock_instance.querybatch.return_value = fake_osv_results
+            mock_client_cls.return_value = mock_instance
+            findings = scan_manifest(
+                manifest={"path": str(lockfile), "ecosystem": "npm",
+                          "target": "test", "manifest_hash": "abc"},
+            )
+
+    assert len(findings) == 1
+    assert findings[0]["vuln_id"] == "GHSA-jf85-cpcp-j695"
+    assert findings[0]["scanner_source"] == "osv-api"

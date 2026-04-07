@@ -193,3 +193,101 @@ def parse_osv_output(raw_json: str, manifest_path: str, target: str) -> list[Fin
                 )
                 findings.append(f)
     return findings
+
+
+from scripts.lib.osv_client import OSVClient
+
+
+def _parse_npm_lockfile_packages(lockfile_path: str) -> list[dict]:
+    """Extract (name, version) tuples from npm package-lock.json.
+
+    Returns list of {package: {name, ecosystem}, version} dicts ready
+    for OSVClient.querybatch().
+    """
+    try:
+        with open(lockfile_path, encoding="utf-8") as fh:
+            data = _json.loads(fh.read())
+    except (OSError, _json.JSONDecodeError) as e:
+        raise ScannerError(f"Failed to parse npm lockfile {lockfile_path}: {e}") from e
+
+    queries = []
+    packages = data.get("packages", {})
+    for pkg_path, pkg_data in packages.items():
+        if pkg_path == "":
+            continue  # root package
+        # node_modules/<scope>/<name> or node_modules/<name>
+        parts = pkg_path.split("node_modules/", 1)
+        if len(parts) != 2:
+            continue
+        name = parts[1]
+        version = pkg_data.get("version")
+        if not version:
+            continue
+        queries.append({
+            "package": {"name": name, "ecosystem": "npm"},
+            "version": version,
+        })
+    return queries
+
+
+def scan_manifest(manifest: dict) -> list[Finding]:
+    """Scan a single manifest. Prefers osv-scanner if installed; falls back
+    to direct OSV API query if not.
+
+    Args:
+        manifest: dict with keys 'path', 'ecosystem', 'target', 'manifest_hash'
+
+    Returns:
+        list[Finding]
+    """
+    manifest_path = manifest["path"]
+    target = manifest.get("target", "")
+    ecosystem = manifest.get("ecosystem", "").lower()
+
+    if detect_scanner("osv-scanner") is not None:
+        # Preferred path: use osv-scanner subprocess
+        try:
+            raw = run_osv_scanner_lockfile(manifest_path)
+            return parse_osv_output(raw, manifest_path=manifest_path, target=target)
+        except EmptyLockfileError:
+            # Task 8.5 handles this case in scan_manifest_safely
+            raise
+        except ScannerError:
+            raise
+
+    # Fallback: parse manifest locally and query OSV API directly
+    if ecosystem != "npm":
+        # MVP fallback only handles npm. Other ecosystems get a SCAN_ERROR
+        # in Task 8.5's scan_manifest_safely.
+        raise ScannerError(
+            f"osv-scanner not installed and ecosystem {ecosystem!r} fallback "
+            "not implemented in MVP (only npm has a fallback path)"
+        )
+
+    queries = _parse_npm_lockfile_packages(manifest_path)
+    if not queries:
+        return []
+
+    client = OSVClient()
+    results = client.querybatch(queries)
+
+    findings: list[Finding] = []
+    for query, result in zip(queries, results):
+        pkg_name = query["package"]["name"]
+        pkg_version = query["version"]
+        try:
+            purl = build_purl("npm", pkg_name, pkg_version)
+        except Exception:
+            purl = f"pkg:npm/{pkg_name}@{pkg_version}"
+        for vuln in result.get("vulns", []):
+            findings.append(new_finding(
+                purl=purl,
+                vuln_id=vuln.get("id", "UNKNOWN"),
+                severity=_extract_severity(vuln.get("severity", [])),
+                manifest_path=manifest_path,
+                target=target,
+                description=vuln.get("summary", ""),
+                aliases=vuln.get("aliases", []),
+                scanner_source="osv-api",
+            ))
+    return findings
