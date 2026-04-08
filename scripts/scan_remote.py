@@ -4,8 +4,7 @@ Pattern B: the scanner runs on the remote. We never copy code locally;
 we only receive osv-scanner's JSON output over SSH stdout. This is the
 S4 load-bearing promise (see SAFETY_INVARIANTS.md).
 """
-from typing import Any
-
+from scripts.lib.remote_types import RemoteManifest
 from scripts.lib.ssh_runner import SSHRunner, SSHUnreachableError
 from scripts.lib.types import Finding, new_finding
 from scripts.scan_local import parse_osv_output, ScannerError
@@ -14,8 +13,23 @@ from scripts.lib.logger import get_logger
 log = get_logger(__name__)
 
 
+def _scan_error_finding(manifest: RemoteManifest, description: str) -> Finding:
+    """Build a SCAN_ERROR Finding from a manifest and a diagnostic message.
+    Shared by all three SCAN_ERROR branches in scan_remote_manifest."""
+    target = manifest.get("target", "unknown")
+    return new_finding(
+        purl=f"pkg:scan-error/{target}@-",
+        vuln_id="SCAN_ERROR",
+        severity="info",
+        manifest_path=manifest.get("path", ""),
+        target=target,
+        status="SCAN_ERROR",
+        description=description,
+    )
+
+
 def scan_remote_manifest(
-    manifest: dict[str, Any],
+    manifest: RemoteManifest,
     runner: SSHRunner,
 ) -> list[Finding]:
     """Run osv-scanner on the remote host against a single remote manifest.
@@ -29,14 +43,9 @@ def scan_remote_manifest(
     """
     # Pass-through: manifests already marked SCAN_ERROR at discovery time
     if manifest.get("ecosystem") == "SCAN_ERROR":
-        return [new_finding(
-            purl=f"pkg:scan-error/{manifest.get('target', 'unknown')}@-",
-            vuln_id="SCAN_ERROR",
-            severity="info",
-            manifest_path=manifest.get("path", ""),
-            target=manifest.get("target", ""),
-            status="SCAN_ERROR",
-            description=manifest.get("error", "remote discovery failed"),
+        return [_scan_error_finding(
+            manifest,
+            manifest.get("error", "remote discovery failed"),
         )]
 
     cmd = ["osv-scanner", "-L", manifest["path"], "--format", "json"]
@@ -44,15 +53,7 @@ def scan_remote_manifest(
         raw = runner.run(cmd)
     except SSHUnreachableError as e:
         log.warning("remote scan %s unreachable: %s", manifest.get("target"), e)
-        return [new_finding(
-            purl=f"pkg:scan-error/{manifest.get('target', 'unknown')}@-",
-            vuln_id="SCAN_ERROR",
-            severity="info",
-            manifest_path=manifest.get("path", ""),
-            target=manifest.get("target", ""),
-            status="SCAN_ERROR",
-            description=f"ssh unreachable: {e}",
-        )]
+        return [_scan_error_finding(manifest, f"ssh unreachable: {e}")]
 
     try:
         return parse_osv_output(
@@ -61,19 +62,11 @@ def scan_remote_manifest(
             target=manifest["target"],
         )
     except ScannerError as e:
-        return [new_finding(
-            purl=f"pkg:scan-error/{manifest.get('target', 'unknown')}@-",
-            vuln_id="SCAN_ERROR",
-            severity="info",
-            manifest_path=manifest.get("path", ""),
-            target=manifest.get("target", ""),
-            status="SCAN_ERROR",
-            description=f"osv-scanner output parse failed: {e}",
-        )]
+        return [_scan_error_finding(manifest, f"osv-scanner output parse failed: {e}")]
 
 
 def scan_remote_manifests(
-    manifests: list[dict[str, Any]],
+    manifests: list[RemoteManifest],
     runner: SSHRunner,
 ) -> list[Finding]:
     """Scan a batch of remote manifests using a single SSHRunner.
