@@ -26,12 +26,17 @@ def _build_frontmatter(
     parsing by AI agents, yq, log aggregators — no regex guesswork over the
     human-readable body."""
     severity_buckets: dict[str, int] = {
-        "critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0,
+        "info": 0,
+        "other": 0,
     }
     for f in findings:
         sev = f.get("severity", "medium")
-        if sev in severity_buckets:
-            severity_buckets[sev] += 1
+        key = sev if sev in severity_buckets else "other"
+        severity_buckets[key] += 1
 
     fm_data = {
         "run_id": snapshot.get("run_id", ""),
@@ -48,7 +53,7 @@ def _build_frontmatter(
         "local_roots": [str(r) for r in snapshot.get("local_roots", [])],
     }
 
-    yaml = YAML(typ="safe")
+    yaml = YAML(typ="rt")
     yaml.default_flow_style = False
     buf = StringIO()
     yaml.dump(fm_data, buf)

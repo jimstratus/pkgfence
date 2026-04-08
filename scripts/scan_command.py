@@ -241,13 +241,14 @@ def run_scan(
     exit_code = 1 if has_failing else 0
 
     # Output: markdown report
+    snapshot_timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
     snapshot = {
         "scanner_version": detect_scanner("osv-scanner") or "osv-api-fallback",
-        "kev_timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "kev_timestamp": snapshot_timestamp,
         "targets_scanned": len(manifests) + len(remote_manifests),
         "packages_checked": len(findings),  # rough proxy
         "run_id": run_id,
-        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "timestamp": snapshot_timestamp,
         "scanner_host": socket.gethostname(),
         "pkgfence_version": _get_pkgfence_version(),
         "exit_code": exit_code,

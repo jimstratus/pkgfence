@@ -211,3 +211,102 @@ def test_report_frontmatter_parses_as_valid_yaml():
     assert data["ssh_targets"] == []
     assert data["local_roots"] == ["/tmp/workspace"]
     assert data["degraded_modes"] == ["CISA KEV degraded"]
+
+
+def test_frontmatter_routes_unknown_severity_to_other_bucket():
+    """Findings with non-canonical severities (e.g., 'unknown') must be
+    counted in the 'other' bucket so sum(findings_by_severity) == findings_total.
+    Without this, downstream consumers can't trust the breakdown."""
+    findings = [
+        new_finding(
+            purl="pkg:npm/lodash@4.17.10",
+            vuln_id="GHSA-jf85-cpcp-j695",
+            severity="high",  # canonical
+            manifest_path="/var/www/app/package-lock.json",
+            target="dev-host-1",
+            description="real high",
+        ),
+        new_finding(
+            purl="pkg:scan-error/dev-host-1@-",
+            vuln_id="SCAN_ERROR",
+            severity="unknown",  # non-canonical
+            manifest_path="",
+            target="dev-host-1",
+            description="weird severity",
+        ),
+        new_finding(
+            purl="pkg:npm/foo@1.0.0",
+            vuln_id="CVE-2024-9999",
+            severity="bogus",  # also non-canonical
+            manifest_path="/var/www/app/package-lock.json",
+            target="dev-host-1",
+            description="another weird one",
+        ),
+    ]
+    snapshot = {
+        "scanner_version": "2.3.3",
+        "kev_timestamp": "2026-04-07T00:00:00Z",
+        "targets_scanned": 1,
+        "packages_checked": 3,
+        "run_id": "test-run",
+        "timestamp": "2026-04-07T00:00:00+00:00",
+        "scanner_host": "test-host",
+        "pkgfence_version": "0.2.0-dev",
+        "exit_code": 1,
+        "ssh_targets": [],
+        "local_roots": [],
+    }
+    md = render_markdown_report(findings, snapshot, [])
+
+    # Extract frontmatter
+    end = md.index("\n---\n", 4)
+    frontmatter_text = md[4:end]
+    yaml = YAML(typ="safe")
+    data = yaml.load(StringIO(frontmatter_text))
+
+    # Sum of severity buckets must equal total findings
+    severity_sum = sum(data["findings_by_severity"].values())
+    assert severity_sum == data["findings_total"] == 3
+
+    # Specifically: 1 high, 2 other
+    assert data["findings_by_severity"]["high"] == 1
+    assert data["findings_by_severity"]["other"] == 2
+    # Canonical buckets unchanged
+    assert data["findings_by_severity"]["critical"] == 0
+    assert data["findings_by_severity"]["medium"] == 0
+    assert data["findings_by_severity"]["low"] == 0
+    assert data["findings_by_severity"]["info"] == 0
+
+
+def test_frontmatter_severity_keys_in_severity_rank_order():
+    """findings_by_severity should appear in severity-rank order
+    (critical, high, medium, low, info, other) — NOT alphabetical —
+    so humans reading the frontmatter and consumers iterating keys
+    get the intuitive order."""
+    findings = []
+    snapshot = {
+        "scanner_version": "2.3.3",
+        "kev_timestamp": "2026-04-07T00:00:00Z",
+        "targets_scanned": 0,
+        "packages_checked": 0,
+        "run_id": "test-run",
+        "timestamp": "2026-04-07T00:00:00+00:00",
+        "scanner_host": "test-host",
+        "pkgfence_version": "0.2.0-dev",
+        "exit_code": 0,
+        "ssh_targets": [],
+        "local_roots": [],
+    }
+    md = render_markdown_report(findings, snapshot, [])
+
+    # Find the indices of each severity key in the frontmatter text
+    end = md.index("\n---\n", 4)
+    frontmatter_text = md[4:end]
+    keys_in_order = ["critical", "high", "medium", "low", "info", "other"]
+    indices = [frontmatter_text.find(f"  {k}:") for k in keys_in_order]
+    # All keys must be present
+    assert all(idx >= 0 for idx in indices), f"missing keys in {frontmatter_text}"
+    # Indices must be strictly increasing (severity-rank order, not alphabetical)
+    assert indices == sorted(indices), (
+        f"severity keys not in rank order: {list(zip(keys_in_order, indices))}"
+    )
