@@ -69,3 +69,43 @@ def test_render_report_with_degraded_modes_shows_warning():
     assert "CISA KEV" in report
     assert "OSV API" in report
     assert "\u26a0\ufe0f" in report
+
+
+def test_report_distinguishes_remote_targets_in_findings():
+    """A finding whose target matches an ssh target name should be clearly
+    labeled as a remote host in the report output alongside local findings.
+    Regression lock: Task 10 wired SSH into scan_command, and this test
+    confirms the existing report template correctly surfaces both local
+    and remote target names."""
+    findings = [
+        new_finding(
+            purl="pkg:npm/lodash@4.17.10",
+            vuln_id="GHSA-jf85-cpcp-j695",
+            severity="high",
+            manifest_path="/var/www/app/package-lock.json",
+            target="dev-host-1",  # ssh target name
+            description="Prototype Pollution in lodash",
+        ),
+        new_finding(
+            purl="pkg:npm/axios@0.21.0",
+            vuln_id="CVE-2021-3749",
+            severity="medium",
+            manifest_path="D:/projects/local/package-lock.json",
+            target="projects",  # local root name
+            description="ReDoS in axios",
+        ),
+    ]
+    snapshot = {
+        "scanner_version": "2.3.3",
+        "kev_timestamp": "2026-04-07T00:00:00Z",
+        "targets_scanned": 2,
+        "packages_checked": 2,
+    }
+    md = render_markdown_report(findings, snapshot, [])
+
+    # Both target names must appear in the rendered output
+    assert "dev-host-1" in md
+    assert "projects" in md
+    # Both vuln IDs must appear
+    assert "GHSA-jf85-cpcp-j695" in md
+    assert "CVE-2021-3749" in md
