@@ -35,6 +35,7 @@ from scripts.report import render_markdown_report
 from scripts.lib.baseline import save_baseline, load_baseline, diff_findings
 from scripts.lib.kev_client import KEVClient
 from scripts.lib.registry import load_registry, RegistryError
+from scripts.lib.remote_types import RemoteManifest
 from scripts.lib.config import load_defaults, DefaultsError
 from scripts.lib.exceptions import load_exceptions
 from scripts.lib.audit_log import append_audit_record
@@ -132,18 +133,27 @@ def run_scan(
     log.info("L1 discovered %d manifests", len(manifests))
 
     # Layer 1b: Remote discovery via SSH targets
+    # Tier filter mirrors the local tier_filter={1} passed to discover_manifests_full above.
     ssh_targets = list(reg.get("ssh") or [])
-    tier_set = {1}  # default tier filter — matches local
+    tier_set = {1}
     filtered_ssh = [t for t in ssh_targets if t.get("tier", 1) in tier_set]
-    remote_manifests: list[dict] = []
-    for target in filtered_ssh:
-        runner = SSHRunner(
-            host=target["host"],
-            user=target["user"],
-            key_file=target.get("key_file"),
-            use_sudo=target.get("use_sudo", False),
+    # Build each SSHRunner once per target and reuse for L1b + L2b.
+    # SSHRunner is stateless today, but if connection pooling lands later we
+    # want a single pooled instance per target per scan, not two.
+    target_runners: dict[str, SSHRunner] = {
+        t["name"]: SSHRunner(
+            host=t["host"],
+            user=t["user"],
+            key_file=t.get("key_file"),
+            use_sudo=t.get("use_sudo", False),
         )
-        remote_manifests.extend(discover_remote_safely(target, runner))
+        for t in filtered_ssh
+    }
+    remote_manifests: list[RemoteManifest] = []
+    for target in filtered_ssh:
+        remote_manifests.extend(
+            discover_remote_safely(target, target_runners[target["name"]])
+        )
     log.info("L1 remote discovered %d manifests across %d ssh targets",
              len(remote_manifests), len(filtered_ssh))
 
@@ -152,19 +162,15 @@ def run_scan(
     findings = scan_all_manifests(manifests)
     log.info("L2 found %d raw findings", len(findings))
 
-    # Layer 2b: Remote scanning (one SSHRunner per target; SCAN_ERROR records
-    # already in remote_manifests for unreachable targets pass through)
+    # Layer 2b: Remote scanning (reuses the SSHRunner built in L1b; SCAN_ERROR
+    # records already in remote_manifests for unreachable targets pass through)
     for target in filtered_ssh:
         target_manifests = [m for m in remote_manifests if m.get("target") == target["name"]]
         if not target_manifests:
             continue
-        runner = SSHRunner(
-            host=target["host"],
-            user=target["user"],
-            key_file=target.get("key_file"),
-            use_sudo=target.get("use_sudo", False),
+        findings.extend(
+            scan_remote_manifests(target_manifests, target_runners[target["name"]])
         )
-        findings.extend(scan_remote_manifests(target_manifests, runner))
     log.info("L2 total findings (local + remote): %d", len(findings))
 
     # Layer 3: Threat enrichment
