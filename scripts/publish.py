@@ -12,6 +12,8 @@ Planned (not in v0.2.0):
     type: rclone — rclone copy with arbitrary backends
     type: git    — commit + push to a private repo
 """
+import re
+import shlex
 import socket
 import subprocess
 from pathlib import Path
@@ -36,9 +38,24 @@ class PublishError(Exception):
 
 
 def _scanner_hostname() -> str:
-    """Return a stable hostname for the scanner machine. Used as the
-    subdirectory under remote_base so multi-source publishes don't collide."""
-    return socket.gethostname()
+    """Return a stable, path-safe hostname for the scanner machine.
+    Used as the subdirectory under remote_base so multi-source publishes
+    don't collide.
+
+    Sanitizes the value from socket.gethostname():
+    - Replaces any character outside [A-Za-z0-9._-] with '_' so the
+      result is safe to embed in a remote path component.
+    - Falls back to 'unknown-host' if the hostname is empty.
+
+    Defense-in-depth: hostnames SHOULD be RFC-1123 compliant, but
+    socket.gethostname() returns whatever the OS reports, and we send
+    this string into a remote command. Sanitizing here keeps publish
+    safe regardless of what the underlying OS exposes.
+    """
+    raw = socket.gethostname() or ""
+    # Keep only path-safe chars; collapse anything else to underscore
+    sanitized = re.sub(r"[^A-Za-z0-9._-]", "_", raw)
+    return sanitized or "unknown-host"
 
 
 def _resolve_artifacts(
@@ -117,12 +134,20 @@ def _ensure_remote_dir(
     intermediate directories on its own.
 
     Same SSH options as the scp call (IdentitiesOnly=yes + BatchMode=yes).
+    The remote_dir path is shell-quoted via shlex.quote() before being
+    sent to the remote shell, so any unexpected character in scanner_host
+    or remote_base cannot break out of the path argument.
 
     Raises PublishError on failure.
     """
     destination = sink["destination"]  # user@host
     remote_base = sink.get("remote_base", "/opt/pkgfence-reports")
     remote_dir = f"{remote_base}/{scanner_host}"
+
+    # Shell-quote the remote path so any metacharacters are literal.
+    # ssh joins extra args with spaces and sends a single command string
+    # to the remote shell, so list-form here does NOT escape shell parsing.
+    quoted_remote_dir = shlex.quote(remote_dir)
 
     cmd = ["ssh"]
     if sink.get("key_file"):
@@ -132,7 +157,7 @@ def _ensure_remote_dir(
         "-o", "BatchMode=yes",
         "-o", "StrictHostKeyChecking=accept-new",
         destination,
-        f"mkdir -p {remote_dir}",
+        f"mkdir -p {quoted_remote_dir}",
     ]
     try:
         result = subprocess.run(

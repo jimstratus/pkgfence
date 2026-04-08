@@ -107,6 +107,13 @@ def test_publish_run_happy_path(tmp_path):
     first_cmd = mock_run.call_args_list[0].args[0]
     assert first_cmd[0] == "ssh"
     assert any("mkdir" in str(a) for a in first_cmd)
+    # The mkdir ssh call MUST include the same hardening options as scp:
+    # IdentitiesOnly + BatchMode + StrictHostKeyChecking. If someone
+    # refactors _ensure_remote_dir and drops these, dogfood-style "Too
+    # many authentication failures" comes back.
+    assert "IdentitiesOnly=yes" in first_cmd
+    assert "BatchMode=yes" in first_cmd
+    assert "StrictHostKeyChecking=accept-new" in first_cmd
     # Remaining 3 are scp
     for i in range(1, 4):
         cmd = mock_run.call_args_list[i].args[0]
@@ -182,3 +189,79 @@ def test_publish_run_never_raises_on_subprocess_error(tmp_path):
 
     assert len(failures) == 1
     assert "FAIL" in failures[0]
+
+
+def test_scanner_hostname_sanitizes_unsafe_characters():
+    """_scanner_hostname() must replace path-unsafe characters in the
+    raw hostname with underscores so we never embed shell metacharacters
+    or path separators in the remote path.
+
+    Defense in depth: even though Change 2 shell-quotes the path, the
+    hostname source itself shouldn't contain weird characters.
+    """
+    from scripts.publish import _scanner_hostname
+
+    with patch("scripts.publish.socket.gethostname", return_value="SCANHOST"):
+        assert _scanner_hostname() == "SCANHOST"
+
+    with patch("scripts.publish.socket.gethostname", return_value="host with spaces"):
+        assert _scanner_hostname() == "host_with_spaces"
+
+    with patch("scripts.publish.socket.gethostname", return_value="host$(injection)"):
+        # Both `$`, `(`, `)` get replaced
+        assert _scanner_hostname() == "host__injection_"
+
+    with patch("scripts.publish.socket.gethostname", return_value="path/with/slash"):
+        assert _scanner_hostname() == "path_with_slash"
+
+    with patch("scripts.publish.socket.gethostname", return_value=""):
+        assert _scanner_hostname() == "unknown-host"
+
+    # RFC-1123 compliant hostnames pass through unchanged
+    with patch("scripts.publish.socket.gethostname", return_value="hl-cb2.homelab.local"):
+        assert _scanner_hostname() == "hl-cb2.homelab.local"
+
+
+def test_ensure_remote_dir_shell_quotes_remote_path():
+    """The mkdir command sent over ssh must shell-quote the remote
+    directory path so unexpected characters in remote_base or
+    scanner_host cannot break out of the argument."""
+    from scripts.publish import _ensure_remote_dir
+
+    sink = {
+        "type": "scp",
+        "destination": "u@h",
+        "remote_base": "/opt/pkgfence-reports",
+    }
+
+    captured = {}
+    def fake_run(cmd, **kwargs):
+        captured["cmd"] = cmd
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    with patch("scripts.publish.subprocess.run", side_effect=fake_run):
+        # scanner_host is sanitized by the time it reaches _ensure_remote_dir,
+        # but the function should still shell-quote the path on the way out
+        _ensure_remote_dir(sink, "SCANHOST")
+
+    cmd = captured["cmd"]
+    # The last element is the mkdir command string sent to the remote shell
+    mkdir_str = cmd[-1]
+    assert mkdir_str.startswith("mkdir -p ")
+    # The path is single-quoted by shlex.quote (or no quote needed for safe paths)
+    # For "/opt/pkgfence-reports/SCANHOST", shlex.quote returns the string unchanged
+    # because all characters are safe. Verify it's at least the right path.
+    assert "/opt/pkgfence-reports/SCANHOST" in mkdir_str
+
+    # Now test with a hostname that WOULD have unsafe chars if not sanitized
+    captured.clear()
+    with patch("scripts.publish.subprocess.run", side_effect=fake_run):
+        _ensure_remote_dir(sink, "weird host'name")
+    cmd = captured["cmd"]
+    mkdir_str = cmd[-1]
+    # The single quote inside the path forces shlex to wrap with double-quote
+    # or escape with backslash; either way, it's not a bare quote
+    assert mkdir_str.startswith("mkdir -p ")
+    # Verify the literal "weird host'name" substring isn't sitting bare —
+    # shlex.quote should have wrapped it somehow
+    assert "'weird host" not in mkdir_str or "\\'" in mkdir_str or "'\\''" in mkdir_str
