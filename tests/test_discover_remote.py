@@ -84,3 +84,26 @@ def test_discover_remote_safely_converts_unreachable_to_scan_error_record():
     assert records[0]["ecosystem"] == "SCAN_ERROR"
     assert records[0]["target"] == "dev-host-1"
     assert "unreachable" in records[0].get("error", "")
+
+
+def test_discover_remote_safely_yields_partial_results_before_scan_error():
+    """If SSHUnreachableError raises mid-iteration (e.g. after some sha256sum
+    calls succeeded), discover_remote_safely yields the good records first
+    and appends a SCAN_ERROR sentinel. Task 10 callers must handle this
+    mixed-output case: SCAN_ERROR does NOT mean zero valid records.
+    """
+    runner = MagicMock()
+    runner.run.side_effect = [
+        "/var/www/app1/package-lock.json\n/var/www/app2/requirements.txt\n",
+        "a" * 64 + "  /var/www/app1/package-lock.json\n",
+        SSHUnreachableError("dropped mid-scan"),
+    ]
+    target = {"name": "dev-host-1", "host": "h", "user": "u", "tier": 2,
+              "discover_paths": ["/var/www"]}
+    records = list(discover_remote_safely(target, runner))
+    # One good record, then a SCAN_ERROR sentinel
+    assert len(records) == 2
+    assert records[0]["ecosystem"] == "npm"
+    assert records[0]["manifest_hash"] == "a" * 64
+    assert records[1]["ecosystem"] == "SCAN_ERROR"
+    assert "dropped mid-scan" in records[1]["error"]

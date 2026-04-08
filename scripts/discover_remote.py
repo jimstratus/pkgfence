@@ -125,5 +125,5 @@ def discover_remote_safely(
             "ecosystem": "SCAN_ERROR",
             "manifest_hash": "",
             "tier": target.get("tier", 1),
-            "error": str(e),  # type: ignore[typeddict-unknown-key]
+            "error": str(e),
         }
