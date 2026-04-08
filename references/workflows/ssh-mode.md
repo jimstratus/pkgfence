@@ -163,6 +163,150 @@ directly via SSH on the private address (e.g. `192.0.2.11`). No tunnel
 involvement. If the LXC is only reachable via Tailscale or a bastion,
 use a host alias in `~/.ssh/config` and leave `key_file` unset.
 
+## Publish (centralized report sink)
+
+When an operator runs scans from multiple hosts (SCANHOST, hl-cb2, a
+future watch-mode-on-host agent on mars, etc.), reviewing reports means
+SSH-ing to each scanner machine and reading local files. The publish
+sink solves this by pushing all three artifacts (markdown report, SARIF,
+audit JSONL) to a single central host after every scan. Operators can
+review findings from any scanner in one place without touching each
+machine individually. This also lays the groundwork for a Phase 4
+watch-mode-on-host use case where a daemon runs on each remote and the
+central sink aggregates results in near-real-time.
+
+### YAML frontmatter
+
+Every report now opens with a `---`-delimited YAML block that embeds
+scan metadata before the human-readable content begins. This lets
+downstream tooling (dashboards, grep, simple scripts) extract structured
+data without parsing the markdown prose.
+
+Example frontmatter from a live scan:
+
+```yaml
+---
+run_id: 20260408T042855Z-89cc08ce
+timestamp: '2026-04-08T04:29:12.027490+00:00'
+scanner_host: SCANHOST
+pkgfence_version: 0.2.0
+scanner_version: 2.3.3
+exit_code: 0
+targets_scanned: 4
+findings_total: 69
+findings_by_severity:
+  critical: 0
+  high: 0
+  medium: 24
+  low: 45
+  info: 0
+  other: 0
+degraded_modes: []
+ssh_targets:
+- dev-host-1
+- dev-host-2
+local_roots:
+- D:/projects/pkgfence
+---
+```
+
+### Configuring a sink
+
+Add a `publish` key to your registry YAML:
+
+```yaml
+publish:
+  - type: scp
+    destination: pkgfence@control.example
+    key_file: ~/.ssh/pkgfence-publish
+    remote_base: /opt/pkgfence-reports
+    include: [md, sarif, jsonl]
+```
+
+Field reference:
+
+- `type` — transport type. Only `scp` is supported in v0.2.0.
+- `destination` — `<user>@<host>` SSH destination for the sink.
+- `key_file` — path to a dedicated private key. Optional; if omitted,
+  falls back to `~/.ssh/config` defaults (agent, identity files, etc.).
+  Using a dedicated key is strongly recommended for automated publishing.
+- `remote_base` — base directory on the receiving host. Defaults to
+  `/opt/pkgfence-reports`. Each scanner's artifacts land in a
+  subdirectory named after `socket.gethostname()` (e.g.,
+  `/opt/pkgfence-reports/SCANHOST/`).
+- `include` — list of artifact types to push. Accepted values: `md`
+  (markdown report), `sarif`, `jsonl` (audit log). Defaults to all
+  three.
+
+### One-time setup on the receiving host
+
+```bash
+# As an admin user with sudo on the sink host:
+sudo useradd -r -m -s /bin/bash -c "pkgfence report sink" pkgfence
+sudo mkdir -p /opt/pkgfence-reports
+sudo chown -R pkgfence:pkgfence /opt/pkgfence-reports
+sudo chmod 750 /opt/pkgfence-reports
+sudo -u pkgfence mkdir -p /home/pkgfence/.ssh
+sudo -u pkgfence touch /home/pkgfence/.ssh/authorized_keys
+sudo chmod 700 /home/pkgfence/.ssh
+sudo chmod 600 /home/pkgfence/.ssh/authorized_keys
+```
+
+```bash
+# On the SCANNER host: generate a dedicated keypair and install the pubkey:
+ssh-keygen -t ed25519 -f ~/.ssh/pkgfence-publish -N "" -C "pkgfence publish from $(hostname)"
+cat ~/.ssh/pkgfence-publish.pub | ssh <admin>@<sink-host> 'sudo tee -a /home/pkgfence/.ssh/authorized_keys'
+```
+
+### Verification
+
+Test the connection manually before relying on pkgfence to push:
+
+```bash
+echo "probe $(date)" > /tmp/probe.txt
+scp -i ~/.ssh/pkgfence-publish -o IdentitiesOnly=yes -o BatchMode=yes \
+    /tmp/probe.txt pkgfence@<sink-host>:/opt/pkgfence-reports/
+ssh -i ~/.ssh/pkgfence-publish -o IdentitiesOnly=yes -o BatchMode=yes \
+    pkgfence@<sink-host> 'cat /opt/pkgfence-reports/probe.txt && rm /opt/pkgfence-reports/probe.txt'
+rm /tmp/probe.txt
+```
+
+**Why `IdentitiesOnly=yes` is required.** Without it, ssh fans out every
+key loaded in ssh-agent before reaching the key specified by `-i`. On
+hosts with a strict `MaxAuthTries` limit (the OpenSSH default is 6), the
+agent's keys exhaust the budget before the publish key is tried, and the
+server closes the connection with "Too many authentication failures".
+`BatchMode=yes` ensures no password prompt blocks an unattended scan.
+Both options are baked into pkgfence's automated scp invocations, and
+both are reproduced in the manual probe above so you can verify the
+exact behavior pkgfence will use.
+
+### Failure semantics
+
+Publish is best-effort. If scp fails (network error, key mismatch,
+disk full on the sink), the error is logged to stderr but does **not**
+change the scan exit code and does **not** modify the local report. The
+local report remains the authoritative source of truth — a failed
+publish never invalidates a successful scan. Future enhancement: persist
+publish failures to a state file so the next scan's `degraded_modes`
+field surfaces the previous failure without requiring the operator to
+inspect stderr.
+
+### Multi-scanner architecture preview
+
+Each scanner host gets its own subdirectory under `remote_base` because
+pkgfence auto-prepends `socket.gethostname()` before pushing. When more
+scanners come online (e.g., Phase 4 watch-mode-on-host on mars or
+bespin), their artifacts land in sibling subdirectories automatically —
+no sink-side configuration required.
+
+```
+/opt/pkgfence-reports/
+├── SCANHOST/                # this scanner
+├── hl-cb2/                 # future
+└── mars/                   # future (when watch-mode-on-host lands)
+```
+
 ## Exit codes
 
 Same as local scan:
