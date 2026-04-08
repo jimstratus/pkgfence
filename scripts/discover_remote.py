@@ -7,6 +7,7 @@ Uses only S3-allowlisted commands:
 
 Never retrieves manifest contents. Never writes anything. Path + hash only.
 """
+import re
 from typing import Iterator
 
 from scripts.discover import MANIFEST_ECOSYSTEM
@@ -23,14 +24,14 @@ REMOTE_MAX_DEPTH = 6
 def _build_find_command(discover_paths: list[str]) -> list[str]:
     """Build a `find` argv that matches all known manifest filenames."""
     cmd = ["find"] + list(discover_paths)
-    cmd += ["-maxdepth", str(REMOTE_MAX_DEPTH), "-type", "f", "("]
+    cmd += ["-maxdepth", str(REMOTE_MAX_DEPTH), "-type", "f", "\\("]
     first = True
     for name in MANIFEST_ECOSYSTEM:
         if not first:
             cmd += ["-o"]
         cmd += ["-name", name]
         first = False
-    cmd += [")"]
+    cmd += ["\\)"]
     return cmd
 
 
@@ -46,6 +47,14 @@ def discover_remote_manifests(
 
     Yields:
         RemoteManifest records, one per discovered lockfile.
+
+    Raises:
+        SSHUnreachableError: if the remote host becomes unreachable during
+            the find call OR mid-iteration during sha256sum calls. Because
+            this is a generator, some records may have already been yielded
+            when the exception raises. Callers should wrap the full
+            list(...) call to handle partial results correctly — see
+            discover_remote_safely() in Task 7 for the canonical pattern.
     """
     discover_paths = target.get("discover_paths") or []
     if not discover_paths:
@@ -58,10 +67,11 @@ def discover_remote_manifests(
         # S1 preserved — re-raise. scan_command wraps with SCAN_ERROR handling.
         raise
 
-    for line in find_output.splitlines():
-        path = line.strip()
-        if not path:
-            continue
+    paths = [line.strip() for line in find_output.splitlines() if line.strip()]
+    log.info("ssh target %s: find returned %d manifest candidates",
+             target.get("name"), len(paths))
+
+    for path in paths:
         filename = path.rsplit("/", 1)[-1]
         ecosystem = MANIFEST_ECOSYSTEM.get(filename)
         if ecosystem is None:
@@ -74,6 +84,14 @@ def discover_remote_manifests(
             raise
         # sha256sum output: "<hash>  <path>\n"
         hash_hex = hash_output.strip().split(None, 1)[0] if hash_output.strip() else ""
+
+        # Defensive: sha256 must be 64 hex chars. A non-matching value means
+        # sha256sum output was in an unexpected format (e.g. BSD-style
+        # "SHA256 (path) = hash"). Log and skip rather than storing garbage.
+        if not re.fullmatch(r"[0-9a-f]{64}", hash_hex):
+            log.warning("ssh target %s: sha256sum for %s returned unexpected format; skipping",
+                        target.get("name"), path)
+            continue
 
         yield {
             "target": target["name"],
