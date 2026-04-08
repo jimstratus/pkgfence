@@ -109,8 +109,15 @@ def test_discover_tier_filter(tmp_path):
 
 
 def test_discover_pyproject_toml(tmp_path):
-    """v0.1.2: pyproject.toml is recognized as a python manifest.
-    Needed so pkgfence can scan its own dependencies during dogfood."""
+    """BUG 15-E: pyproject.toml was added in v0.1.2 but osv-scanner v2.3.3
+    has NO pyproject.toml extractor — every discovered pyproject.toml became
+    a SCAN_ERROR record. Removed from MANIFEST_ECOSYSTEM until osv-scanner
+    grows an extractor. Verify it is NOT recognized."""
+    from scripts.discover import MANIFEST_ECOSYSTEM
+    assert "pyproject.toml" not in MANIFEST_ECOSYSTEM, (
+        "pyproject.toml must not be in MANIFEST_ECOSYSTEM until osv-scanner "
+        "v2.3.3 gains a pyproject.toml extractor"
+    )
     proj = tmp_path / "pypi-proj"
     proj.mkdir()
     (proj / "pyproject.toml").write_text('''
@@ -120,6 +127,6 @@ version = "1.0.0"
 dependencies = ["httpx==0.27.2"]
 ''')
     results = list(discover_manifests([{"path": str(tmp_path), "tier": 1}]))
-    assert len(results) == 1
-    assert results[0]["ecosystem"] == "python"
-    assert results[0]["path"].endswith("pyproject.toml")
+    assert len(results) == 0, (
+        "pyproject.toml should not be discovered (osv-scanner v2.3.3 limitation)"
+    )

@@ -84,6 +84,41 @@ def test_precheck_discover_path_missing_returns_nonzero(tmp_path, capsys):
     assert "/var/www" in err
 
 
+def test_precheck_empty_version_output_fails(tmp_path, capsys):
+    """If osv-scanner isn't in the remote non-interactive PATH, `osv-scanner
+    --version` returns empty stdout (rc=127) and SSHRunner doesn't raise.
+    Precheck must NOT treat this as success — the version regex check
+    catches this false positive."""
+    reg = tmp_path / "registry.yaml"
+    _init_registry_with_ssh(reg)
+
+    def fake_run(self, command):
+        if command[0] == "osv-scanner":
+            return ""  # Empty stdout, as SSHRunner returns on rc=127
+        return "ok\n"
+
+    with patch("scripts.lib.ssh_runner.SSHRunner.run", new=fake_run):
+        rc = main(["--registry", str(reg), "dev-host-1"])
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "no recognizable version" in err
+
+
+def test_precheck_garbage_version_output_fails(tmp_path, capsys):
+    """A non-empty but non-version output must also fail (defensive)."""
+    reg = tmp_path / "registry.yaml"
+    _init_registry_with_ssh(reg)
+
+    def fake_run(self, command):
+        if command[0] == "osv-scanner":
+            return "bash: line 1: osv-scanner: command not found\n"
+        return "ok\n"
+
+    with patch("scripts.lib.ssh_runner.SSHRunner.run", new=fake_run):
+        rc = main(["--registry", str(reg), "dev-host-1"])
+    assert rc == 2
+
+
 def test_precheck_multiple_discover_paths_reports_all_results(tmp_path, capsys):
     """With multiple discover_paths, precheck reports the status of all
     paths (OK or FAIL) before returning, not just the first failure."""

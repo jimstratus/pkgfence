@@ -242,7 +242,7 @@ def run_scan(
         {
             "run_id": run_id,
             "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            "manifests_scanned": len(manifests),
+            "manifests_scanned": len(manifests) + len(remote_manifests),
             "findings_count": len(findings),
             "degraded_modes": degraded_modes,
         },

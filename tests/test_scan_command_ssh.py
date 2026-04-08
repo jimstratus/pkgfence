@@ -1,4 +1,5 @@
 """End-to-end scan_command tests with SSH targets (Phase 2)."""
+import json
 from unittest.mock import patch, MagicMock
 
 from scripts.scan_command import run_scan
@@ -59,6 +60,16 @@ def test_run_scan_with_ssh_target_includes_remote_findings(tmp_path, tmp_state):
     report_text = report_path.read_text(encoding="utf-8")
     assert "GHSA-jf85-cpcp-j695" in report_text
     assert "dev-host-1" in report_text
+
+    # BUG 15-F regression: audit log must count remote manifests too.
+    audit_dir = tmp_state / "audit.jsonl.d"
+    audit_files = list(audit_dir.glob("*.jsonl"))
+    assert len(audit_files) == 1, f"expected one audit file, got {audit_files}"
+    audit_record = json.loads(audit_files[0].read_text(encoding="utf-8").strip())
+    assert audit_record["manifests_scanned"] >= 1, (
+        f"audit manifests_scanned should count remote manifests, got "
+        f"{audit_record['manifests_scanned']}"
+    )
 
 
 def test_run_scan_with_unreachable_ssh_target_exit_1_not_2(tmp_path, tmp_state):

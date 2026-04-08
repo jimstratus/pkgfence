@@ -13,6 +13,7 @@ Exit codes:
     3 = configuration / registry error
 """
 import argparse
+import re
 import sys
 from pathlib import Path
 
@@ -120,6 +121,22 @@ def cmd_add_ssh(args) -> int:
     if args.name in existing:
         print(f"Error: ssh target {args.name!r} already exists", file=sys.stderr)
         return 3
+
+    # BUG 15-B: reject Windows-mangled paths (MSYS2 auto-converts /opt etc.
+    # on Git Bash). discover_paths are REMOTE POSIX paths; a drive letter
+    # or backslash is always wrong.
+    if args.discover_path:
+        for dp in args.discover_path:
+            if re.match(r"^[A-Za-z]:[/\\]", dp) or "\\" in dp:
+                print(
+                    f"Error: discover_path {dp!r} looks like a Windows path. "
+                    f"SSH discover_paths are REMOTE POSIX paths (e.g. /opt, "
+                    f"/var/www). If you're on Git Bash on Windows and your "
+                    f"path was auto-converted by MSYS2, prefix the command "
+                    f"with 'MSYS_NO_PATHCONV=1'.",
+                    file=sys.stderr,
+                )
+                return 3
 
     entry: dict = {
         "name": args.name,

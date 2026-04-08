@@ -10,7 +10,7 @@ Never retrieves manifest contents. Never writes anything. Path + hash only.
 import re
 from typing import Iterator
 
-from scripts.discover import MANIFEST_ECOSYSTEM
+from scripts.discover import MANIFEST_ECOSYSTEM, DEFAULT_EXCLUDES
 from scripts.lib.remote_types import RemoteManifest
 from scripts.lib.ssh_runner import SSHRunner, SSHUnreachableError
 from scripts.lib.logger import get_logger
@@ -22,16 +22,32 @@ REMOTE_MAX_DEPTH = 6
 
 
 def _build_find_command(discover_paths: list[str]) -> list[str]:
-    """Build a `find` argv that matches all known manifest filenames."""
+    """Build a `find` argv that matches all known manifest filenames,
+    pruning directories in DEFAULT_EXCLUDES (node_modules, .git, etc.)."""
     cmd = ["find"] + list(discover_paths)
-    cmd += ["-maxdepth", str(REMOTE_MAX_DEPTH), "-type", "f", "\\("]
+    cmd += ["-maxdepth", str(REMOTE_MAX_DEPTH)]
+
+    # Prune group: skip DEFAULT_EXCLUDES directories.
+    # Sort for deterministic argv (DEFAULT_EXCLUDES is a frozenset).
+    cmd += ["\\("]
+    first = True
+    for exc in sorted(DEFAULT_EXCLUDES):
+        if not first:
+            cmd += ["-o"]
+        cmd += ["-name", exc]
+        first = False
+    cmd += ["\\)", "-prune", "-o"]
+
+    # Match group: files with manifest filenames, with explicit -print
+    # so pruned directories are not printed by the default action.
+    cmd += ["-type", "f", "\\("]
     first = True
     for name in MANIFEST_ECOSYSTEM:
         if not first:
             cmd += ["-o"]
         cmd += ["-name", name]
         first = False
-    cmd += ["\\)"]
+    cmd += ["\\)", "-print"]
     return cmd
 
 

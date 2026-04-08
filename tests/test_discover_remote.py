@@ -107,3 +107,21 @@ def test_discover_remote_safely_yields_partial_results_before_scan_error():
     assert records[0]["manifest_hash"] == "a" * 64
     assert records[1]["ecosystem"] == "SCAN_ERROR"
     assert "dropped mid-scan" in records[1]["error"]
+
+
+def test_build_find_command_prunes_excluded_directories():
+    """The find command must prune DEFAULT_EXCLUDES directories (node_modules,
+    .git, .venv, etc.) so nested transitive lockfiles don't pollute the scan."""
+    from scripts.discover_remote import _build_find_command
+    from scripts.discover import DEFAULT_EXCLUDES
+    cmd = _build_find_command(["/var/www"])
+    # Every name in DEFAULT_EXCLUDES should appear in the argv
+    for exc in DEFAULT_EXCLUDES:
+        assert exc in cmd, f"{exc!r} missing from find argv"
+    # -prune must be present
+    assert "-prune" in cmd
+    # Explicit -print must be present (without it, pruned dirs get printed)
+    assert "-print" in cmd
+    # Escaped parens must still be present (Task 6 invariant)
+    assert "\\(" in cmd
+    assert "\\)" in cmd

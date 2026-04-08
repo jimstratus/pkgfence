@@ -98,3 +98,37 @@ def test_list_shows_ssh_targets(tmp_path, capsys):
     assert "scanuser@mars.example" in out
     assert "(tier 1)" in out
     assert "discover_paths: /var/www" in out
+
+
+def test_add_ssh_rejects_drive_letter_discover_path(tmp_path, capsys):
+    """BUG 15-B: Windows-mangled paths (C:/... or containing backslash) must
+    be rejected with exit 3 and a hint about MSYS_NO_PATHCONV=1."""
+    reg = tmp_path / "registry.yaml"
+    _init_registry(reg)
+    rc = main([
+        "--registry", str(reg),
+        "add-ssh",
+        "--name", "bad-path-test",
+        "--host", "example.com",
+        "--user", "u",
+        "--discover-path", "C:/Program Files/Git/opt",  # Simulates MSYS mangling
+    ])
+    assert rc == 3
+    err = capsys.readouterr().err
+    assert "Windows path" in err
+    assert "MSYS_NO_PATHCONV" in err
+
+
+def test_add_ssh_rejects_backslash_in_discover_path(tmp_path, capsys):
+    """A path containing any backslash is not POSIX and must be rejected."""
+    reg = tmp_path / "registry.yaml"
+    _init_registry(reg)
+    rc = main([
+        "--registry", str(reg),
+        "add-ssh",
+        "--name", "bad-path-test",
+        "--host", "example.com",
+        "--user", "u",
+        "--discover-path", "/opt\\weird",
+    ])
+    assert rc == 3

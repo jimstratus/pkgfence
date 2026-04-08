@@ -28,21 +28,45 @@ not auto-bootstrap — bootstrap lands in v0.2.1.
 
 ### Installing osv-scanner (Linux)
 
-Download the latest release binary from GitHub:
+osv-scanner must be installed to a directory that is in the remote host's
+**non-interactive** SSH PATH. `~/.bashrc` is NOT read for non-interactive
+SSH commands, so `~/.local/bin` alone will not work even if it's in your
+interactive PATH. On Debian/Ubuntu the non-interactive PATH is typically
+`/usr/local/bin:/usr/bin:/bin:/usr/games`, so installing to `/usr/local/bin`
+via sudo is the simplest approach.
 
 ```bash
-# On the remote host, as the user who will run the scan (e.g. devuser):
-curl -sSL -o /tmp/osv-scanner.tar.gz \
-  https://github.com/google/osv-scanner/releases/download/v2.3.3/osv-scanner_2.3.3_linux_amd64.tar.gz
-sha256sum /tmp/osv-scanner.tar.gz  # compare against the release's .sha256 file
-mkdir -p ~/.local/bin
-tar -xzf /tmp/osv-scanner.tar.gz -C ~/.local/bin osv-scanner
-chmod +x ~/.local/bin/osv-scanner
-~/.local/bin/osv-scanner --version  # should print 2.3.3
+# On the remote host (e.g. as devuser or scanuser):
+cd /tmp
+curl -sSL -o osv-scanner \
+  https://github.com/google/osv-scanner/releases/download/v2.3.3/osv-scanner_linux_amd64
+curl -sSL -o osv-scanner_SHA256SUMS \
+  https://github.com/google/osv-scanner/releases/download/v2.3.3/osv-scanner_SHA256SUMS
+
+# Verify the hash before installing:
+expected=$(grep 'osv-scanner_linux_amd64$' osv-scanner_SHA256SUMS | awk '{print $1}')
+actual=$(sha256sum osv-scanner | awk '{print $1}')
+[ "$expected" = "$actual" ] && echo "hash ok" || (echo "HASH MISMATCH" && exit 1)
+
+# Install to /usr/local/bin (requires sudo — needed for the non-interactive PATH):
+sudo install -m 755 osv-scanner /usr/local/bin/osv-scanner
+rm osv-scanner osv-scanner_SHA256SUMS
+
+# Verify the install is reachable via non-interactive SSH:
+# (Run from your local machine, not from inside the remote shell.)
+ssh <user>@<host> osv-scanner --version
+# Expected: "osv-scanner version: 2.3.3" + osv-scalibr + commit lines
 ```
 
-Ensure `~/.local/bin` is in the user's PATH (add to `~/.bashrc` /
-`~/.profile` if not).
+The non-interactive SSH test at the end is important: a plain `osv-scanner
+--version` from inside an interactive SSH session may succeed even when the
+non-interactive invocation fails (if you have `~/.local/bin` in your
+interactive PATH but not in the default non-interactive PATH).
+
+If you cannot install to `/usr/local/bin` (no sudo), see the `scanner_path`
+workaround in the v0.2.1 roadmap — it will let you point pkgfence at an
+absolute remote path. Until then, `/usr/local/bin` is the supported install
+location.
 
 ### Verifying with precheck
 

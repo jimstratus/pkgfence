@@ -12,6 +12,7 @@ Exit codes:
     3 = target not in registry / config error
 """
 import argparse
+import re
 import sys
 from pathlib import Path
 
@@ -46,14 +47,29 @@ def main(argv=None) -> int:
         use_sudo=target.get("use_sudo", False),
     )
 
-    # Check 1: osv-scanner present
-    # osv-scanner is in the S3 allowlist, so ValueError cannot fire here.
+    # Check 1: osv-scanner present (must return a recognizable version string)
     try:
         version_output = runner.run(["osv-scanner", "--version"])
     except SSHUnreachableError as e:
         print(f"  [FAIL] ssh unreachable: {e}", file=sys.stderr)
         return 2
-    print(f"  [OK] osv-scanner present: {version_output.strip()}")
+    # Note: osv-scanner is in the S3 allowlist, so SSHRunner.run() cannot
+    # raise ValueError from the allowlist check — no defensive catch needed.
+    #
+    # BUT SSHRunner.run() does NOT raise on non-zero exit codes other than 255.
+    # If osv-scanner isn't in the remote non-interactive PATH, `osv-scanner --version`
+    # exits 127 with empty stdout and runner.run() returns "". We MUST validate
+    # the version format to catch this false-positive case.
+    version_match = re.search(r"version[:\s]+(\d+\.\d+\.\d+)", version_output)
+    if not version_match:
+        print(
+            f"  [FAIL] osv-scanner --version returned no recognizable version "
+            f"(output: {version_output.strip()!r}). Is osv-scanner installed and "
+            f"in the remote non-interactive PATH? See references/workflows/ssh-mode.md.",
+            file=sys.stderr,
+        )
+        return 2
+    print(f"  [OK] osv-scanner present: {version_match.group(1)}")
 
     # Check 2: each discover_path exists
     # We use `stat <path>` rather than `ls <path>` because SSHRunner.run()

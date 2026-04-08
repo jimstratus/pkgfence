@@ -13,7 +13,9 @@ MANIFEST_ECOSYSTEM = {
     "poetry.lock": "python",
     "Pipfile.lock": "python",
     "uv.lock": "python",
-    "pyproject.toml": "python",  # v0.1.2: PEP 518/621 modern Python projects
+    # pyproject.toml removed: osv-scanner v2.3.3 has no pyproject.toml extractor.
+    # Every pyproject.toml under discovery became a SCAN_ERROR record.
+    # Re-add when osv-scanner grows an extractor.
     "Cargo.lock": "rust",
     "go.sum": "go",
     "Gemfile.lock": "ruby",
