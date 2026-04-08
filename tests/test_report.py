@@ -1,4 +1,8 @@
 """Tests for the markdown report generator."""
+from io import StringIO
+
+from ruamel.yaml import YAML
+
 from scripts.lib.types import new_finding
 from scripts.report import render_markdown_report
 
@@ -109,3 +113,101 @@ def test_report_distinguishes_remote_targets_in_findings():
     # Both vuln IDs must appear
     assert "GHSA-jf85-cpcp-j695" in md
     assert "CVE-2021-3749" in md
+
+
+def test_report_includes_yaml_frontmatter_block():
+    """The rendered report must start with a YAML frontmatter block (--- ... ---)
+    so AI agents and log aggregators can parse scan metadata without regex
+    over the human-readable body."""
+    findings = [
+        new_finding(
+            purl="pkg:npm/lodash@4.17.10",
+            vuln_id="GHSA-jf85-cpcp-j695",
+            severity="high",
+            manifest_path="/var/www/app/package-lock.json",
+            target="dev-host-1",
+            description="Prototype Pollution",
+        ),
+    ]
+    snapshot = {
+        "scanner_version": "2.3.3",
+        "kev_timestamp": "2026-04-07T00:00:00Z",
+        "targets_scanned": 3,
+        "packages_checked": 1,
+        "run_id": "20260408T123456Z-abc12345",
+        "timestamp": "2026-04-08T12:34:56+00:00",
+        "scanner_host": "SCANHOST",
+        "pkgfence_version": "0.2.0-dev",
+        "exit_code": 1,
+        "ssh_targets": ["dev-host-1", "dev-host-2"],
+        "local_roots": ["D:/projects/pkgfence"],
+    }
+    md = render_markdown_report(findings, snapshot, [])
+
+    # Must start with YAML frontmatter delimiter
+    assert md.startswith("---\n")
+    # The frontmatter must end with a closing ---
+    frontmatter_end = md.index("\n---\n", 4)
+    frontmatter = md[4:frontmatter_end]
+    # Every required field must be present in the frontmatter
+    assert "run_id: 20260408T123456Z-abc12345" in frontmatter
+    assert "scanner_host: SCANHOST" in frontmatter
+    assert "pkgfence_version: 0.2.0-dev" in frontmatter
+    assert "scanner_version: 2.3.3" in frontmatter
+    assert "exit_code: 1" in frontmatter
+    assert "targets_scanned: 3" in frontmatter
+    assert "findings_total: 1" in frontmatter
+    # Severity breakdown
+    assert "findings_by_severity:" in frontmatter
+    assert "high: 1" in frontmatter
+    assert "critical: 0" in frontmatter
+    # Target lists (order matters for reproducibility)
+    assert "ssh_targets:" in frontmatter
+    assert "dev-host-1" in frontmatter
+    assert "dev-host-2" in frontmatter
+    # Body still exists after the frontmatter
+    body = md[frontmatter_end + 5:]
+    assert body.startswith("# Scan Report")
+
+
+def test_report_frontmatter_parses_as_valid_yaml():
+    """The frontmatter must be valid YAML that can be loaded into a dict
+    with expected keys. This locks the contract for downstream parsers."""
+    findings = []
+    snapshot = {
+        "scanner_version": "2.3.3",
+        "kev_timestamp": "2026-04-07T00:00:00Z",
+        "targets_scanned": 0,
+        "packages_checked": 0,
+        "run_id": "20260408T000000Z-deadbeef",
+        "timestamp": "2026-04-08T00:00:00+00:00",
+        "scanner_host": "test-host",
+        "pkgfence_version": "0.2.0-dev",
+        "exit_code": 0,
+        "ssh_targets": [],
+        "local_roots": ["/tmp/workspace"],
+    }
+    md = render_markdown_report(findings, snapshot, ["CISA KEV degraded"])
+
+    # Extract the frontmatter block
+    assert md.startswith("---\n")
+    end = md.index("\n---\n", 4)
+    frontmatter_text = md[4:end]
+
+    # Parse it as YAML
+    yaml = YAML(typ="safe")
+    data = yaml.load(StringIO(frontmatter_text))
+
+    assert data["run_id"] == "20260408T000000Z-deadbeef"
+    assert data["scanner_host"] == "test-host"
+    assert data["pkgfence_version"] == "0.2.0-dev"
+    assert data["scanner_version"] == "2.3.3"
+    assert data["targets_scanned"] == 0
+    assert data["findings_total"] == 0
+    assert data["exit_code"] == 0
+    assert isinstance(data["findings_by_severity"], dict)
+    assert data["findings_by_severity"]["critical"] == 0
+    assert data["findings_by_severity"]["high"] == 0
+    assert data["ssh_targets"] == []
+    assert data["local_roots"] == ["/tmp/workspace"]
+    assert data["degraded_modes"] == ["CISA KEV degraded"]

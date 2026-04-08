@@ -1,6 +1,7 @@
 """Markdown report generator for pkgfence scan output.
 
 The report has these sections:
+- YAML frontmatter (machine-readable scan metadata)
 - Header (date)
 - Calibrated trust disclaimer (M10 critic gap fix)
 - Snapshot (scanner version, feed timestamps, targets scanned, packages checked)
@@ -8,8 +9,50 @@ The report has these sections:
 - Summary (counts by severity)
 - Findings list (grouped by severity, one card per finding)
 """
+from io import StringIO
 from typing import Any
+
+from ruamel.yaml import YAML
+
 from scripts.lib.types import Finding
+
+
+def _build_frontmatter(
+    findings: list[Finding],
+    snapshot: dict[str, Any],
+    degraded_modes: list[str],
+) -> str:
+    """Build a YAML frontmatter block with scan metadata. Enables machine
+    parsing by AI agents, yq, log aggregators — no regex guesswork over the
+    human-readable body."""
+    severity_buckets: dict[str, int] = {
+        "critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0
+    }
+    for f in findings:
+        sev = f.get("severity", "medium")
+        if sev in severity_buckets:
+            severity_buckets[sev] += 1
+
+    fm_data = {
+        "run_id": snapshot.get("run_id", ""),
+        "timestamp": snapshot.get("timestamp", ""),
+        "scanner_host": snapshot.get("scanner_host", ""),
+        "pkgfence_version": snapshot.get("pkgfence_version", ""),
+        "scanner_version": snapshot.get("scanner_version", ""),
+        "exit_code": snapshot.get("exit_code", 0),
+        "targets_scanned": snapshot.get("targets_scanned", 0),
+        "findings_total": len(findings),
+        "findings_by_severity": severity_buckets,
+        "degraded_modes": [str(m) for m in degraded_modes],
+        "ssh_targets": [str(t) for t in snapshot.get("ssh_targets", [])],
+        "local_roots": [str(r) for r in snapshot.get("local_roots", [])],
+    }
+
+    yaml = YAML(typ="safe")
+    yaml.default_flow_style = False
+    buf = StringIO()
+    yaml.dump(fm_data, buf)
+    return "---\n" + buf.getvalue() + "---\n"
 
 
 _DISCLAIMER_TEMPLATE = (
@@ -107,7 +150,8 @@ def render_markdown_report(
     Returns:
         Markdown string ready to write to disk.
     """
-    parts = ["# Scan Report\n", _render_disclaimer(), "\n", _render_snapshot(snapshot), "\n"]
+    frontmatter = _build_frontmatter(findings, snapshot, degraded_modes)
+    parts = [frontmatter, "# Scan Report\n", _render_disclaimer(), "\n", _render_snapshot(snapshot), "\n"]
 
     deg = _render_degraded_modes(degraded_modes)
     if deg:

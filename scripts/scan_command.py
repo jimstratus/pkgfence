@@ -10,6 +10,7 @@ Usage (from CLI):
 import argparse
 import datetime
 import json
+import socket
 import sys
 import uuid
 from pathlib import Path
@@ -47,6 +48,15 @@ log = get_logger(__name__)
 
 SKILL_ROOT = Path(__file__).parent.parent
 DEFAULT_EXCLUSIONS_PATH = SKILL_ROOT / "config" / "exclusions.yaml"
+
+
+def _get_pkgfence_version() -> str:
+    """Return the currently-installed pkgfence version string."""
+    try:
+        from importlib.metadata import version
+        return version("pkgfence")
+    except Exception:  # noqa: BLE001
+        return "unknown"
 
 
 def _load_exclusions_config(path: Path) -> dict[str, Any]:
@@ -218,12 +228,31 @@ def run_scan(
         },
     )
 
+    # Exit code logic (computed before snapshot so it can be included in frontmatter)
+    fail_rank = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}.get(
+        fail_on, 0
+    )
+    sev_rank = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+    has_failing = any(
+        sev_rank.get(f.get("severity", "medium"), 99) <= fail_rank
+        and f.get("status") != "SCAN_ERROR"
+        for f in findings
+    )
+    exit_code = 1 if has_failing else 0
+
     # Output: markdown report
     snapshot = {
         "scanner_version": detect_scanner("osv-scanner") or "osv-api-fallback",
         "kev_timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "targets_scanned": len(manifests) + len(remote_manifests),
         "packages_checked": len(findings),  # rough proxy
+        "run_id": run_id,
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "scanner_host": socket.gethostname(),
+        "pkgfence_version": _get_pkgfence_version(),
+        "exit_code": exit_code,
+        "ssh_targets": [str(t.get("name", "")) for t in filtered_ssh],
+        "local_roots": [str(r.get("path", "")) for r in list(reg.get("roots") or [])],
     }
     report_md = render_markdown_report(findings, snapshot, degraded_modes)
     report_path = state_dir / "reports" / f"{run_id}.md"
@@ -248,17 +277,6 @@ def run_scan(
         },
     )
 
-    # Exit code logic
-    fail_rank = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}.get(
-        fail_on, 0
-    )
-    sev_rank = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
-    has_failing = any(
-        sev_rank.get(f.get("severity", "medium"), 99) <= fail_rank
-        and f.get("status") != "SCAN_ERROR"
-        for f in findings
-    )
-    exit_code = 1 if has_failing else 0
     log.info("scan complete: exit %d, %d findings", exit_code, len(findings))
 
     return exit_code, report_path
