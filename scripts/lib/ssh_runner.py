@@ -56,7 +56,9 @@ class SSHRunner:
         ssh_cmd += [f"{self.user}@{self.host}"] + command
         try:
             result = subprocess.run(
-                ssh_cmd, capture_output=True, text=True, timeout=300, check=False,
+                ssh_cmd, capture_output=True, text=True,
+                encoding="utf-8", errors="replace",
+                timeout=300, check=False,
             )
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
             raise SSHUnreachableError(f"SSH to {self.host} failed: {e}") from e

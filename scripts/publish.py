@@ -161,7 +161,9 @@ def _ensure_remote_dir(
     ]
     try:
         result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=30, check=False,
+            cmd, capture_output=True, text=True,
+            encoding="utf-8", errors="replace",
+            timeout=30, check=False,
         )
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
         raise PublishError(f"mkdir-p failed: {e}") from e
@@ -219,7 +221,9 @@ def publish_run(
             cmd = _build_scp_command(artifact, sink, scanner_host)
             try:
                 result = subprocess.run(
-                    cmd, capture_output=True, text=True, timeout=120, check=False,
+                    cmd, capture_output=True, text=True,
+                    encoding="utf-8", errors="replace",
+                    timeout=120, check=False,
                 )
             except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
                 log.warning("publish: scp %s -> %s failed: %s",

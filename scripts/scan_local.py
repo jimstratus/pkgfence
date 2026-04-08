@@ -39,6 +39,8 @@ def detect_scanner(name: str = "osv-scanner") -> Optional[str]:
             [resolved, "--version"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=10,
             check=False,
             shell=False,
@@ -89,6 +91,8 @@ def run_osv_scanner_lockfile(lockfile_path: str) -> str:
             ["osv-scanner", "-L", lockfile_path, "--format", "json"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=300,
             check=False,
         )

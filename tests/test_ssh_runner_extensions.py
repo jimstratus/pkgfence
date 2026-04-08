@@ -80,3 +80,43 @@ def test_ssh_runner_omits_p_flag_when_port_not_set():
         runner.run(["find", "/var/www", "-name", "x"])
     args = mock_run.call_args[0][0]
     assert "-p" not in args
+
+
+def test_ssh_runner_decodes_stdout_as_utf8():
+    """SSHRunner.run() must decode stdout as UTF-8 with errors='replace',
+    not the Windows cp1252 default. Real osv-scanner JSON output contains
+    UTF-8 bytes from international package names and CVE descriptions.
+
+    Without this fix, on Windows, _readerthread dies with UnicodeDecodeError
+    and result.stdout becomes None, breaking parse_osv_output downstream.
+    """
+    runner = SSHRunner(host="h.example", user="u")
+    # Build a fake stdout containing a UTF-8 byte that cp1252 cannot decode
+    # (the same byte that crashed mars: 0x81 is undefined in cp1252).
+    # When passed through encoding='utf-8' errors='replace', it becomes U+FFFD.
+    utf8_payload = "before \ufffd after\n"
+    with patch("scripts.lib.ssh_runner.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout=utf8_payload, stderr="",
+        )
+        result = runner.run(["find", "/tmp", "-name", "x"])
+    # The call must have requested utf-8 encoding with errors='replace'
+    kwargs = mock_run.call_args.kwargs
+    assert kwargs.get("encoding") == "utf-8"
+    assert kwargs.get("errors") == "replace"
+    assert result == utf8_payload
+
+
+def test_ssh_runner_subprocess_call_includes_encoding_kwargs():
+    """Defensive: every subprocess.run call from SSHRunner must pin
+    encoding='utf-8' and errors='replace' so scanner output containing
+    UTF-8 bytes does not crash the Windows cp1252 default decoder."""
+    runner = SSHRunner(host="h.example", user="u", port=22)
+    with patch("scripts.lib.ssh_runner.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stdout="ok\n", stderr="")
+        runner.run(["sha256sum", "/etc/hostname"])
+    kwargs = mock_run.call_args.kwargs
+    assert kwargs.get("text") is True
+    assert kwargs.get("encoding") == "utf-8"
+    assert kwargs.get("errors") == "replace"
+    assert kwargs.get("capture_output") is True
