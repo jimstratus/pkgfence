@@ -55,7 +55,11 @@ This is the load-bearing promise that makes SSH mode safe against
 compromised hosts: a malicious lockfile on mars or bespin cannot reach
 the scanner's local machine via the pkgfence pipeline.
 
-**Test:** `tests/test_s4_no_remote_content_exfil.py` — static regex check
-over both remote modules.
+**Test:** `tests/test_s4_no_remote_content_exfil.py` — two static regex
+checks: `test_scan_remote_never_retrieves_remote_file_contents` (blacklist
+of forbidden transports and the cat literal) and
+`test_scan_remote_only_uses_allowlisted_commands` (whitelist of string-literal
+verbs in `runner.run([...])` calls — see test docstring for coverage limits).
 **Enforcement:** scan_remote.py and discover_remote.py only call
-`runner.run([<verb>, ...])` with verbs in `ALLOWED_COMMANDS`.
+`runner.run([<verb>, ...])` with verbs in `ALLOWED_COMMANDS`. Runtime
+enforcement is guaranteed by `SSHRunner.run()`'s allowlist check (S3).

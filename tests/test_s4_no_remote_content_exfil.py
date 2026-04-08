@@ -25,7 +25,7 @@ FORBIDDEN_CONTENT_RETRIEVAL_PATTERNS = [
     r'\brsync\b.*[\'\"][^\'\"]*:',   # rsync user@host:...
     r'\bsftp\b',
     r'[\'\"]dd\b',                   # dd if= for block-level copy
-    r'\[\s*[\'\"]cat[\'\"]\s*,\s*[^\'\"]*manifest',  # cat <manifest>
+    r'\[\s*[\'\"]cat[\'\"]',  # ["cat", ...] — remote modules must not cat any file
     r'\bopen\(\s*remote_',           # opening a remote-ish path
 ]
 
@@ -44,10 +44,17 @@ def test_scan_remote_never_retrieves_remote_file_contents():
 
 
 def test_scan_remote_only_uses_allowlisted_commands():
-    """S4 corollary: every command string in scan_remote/discover_remote
-    must be in the SSH allowlist (find, cat, sha256sum, ls, stat, osv-scanner,
-    trivy, zizmor). We whitelist cat here only because diagnostic cat of
-    small config files is acceptable (but we don't do that today)."""
+    """S4 defense-in-depth: any string-literal verb appearing as the first
+    element of a runner.run([...]) call in the remote modules must be in
+    ALLOWED_COMMANDS.
+
+    NOTE: This is a narrow static check. Verbs built indirectly (e.g.,
+    runner.run(cmd) where cmd is a variable, or runner.run(helper())) are
+    NOT inspected here — they are enforced at RUNTIME by the allowlist
+    check in SSHRunner.run() (S3). That's where ALLOWED_COMMANDS is the
+    load-bearing gatekeeper. This test exists to catch the specific
+    mistake of a developer writing a literal forbidden verb directly
+    inside a list literal."""
     for module in REMOTE_MODULES:
         text = module.read_text(encoding="utf-8")
         # Extract the first element of each list literal that looks like
