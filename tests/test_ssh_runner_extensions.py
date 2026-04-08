@@ -59,3 +59,24 @@ def test_ssh_runner_default_no_sudo_no_prefix():
         runner.run(["find", "/tmp", "-name", "x"])
     args = mock_run.call_args[0][0]
     assert "sudo" not in args
+
+
+def test_ssh_runner_uses_p_flag_when_port_set():
+    """When port is set, the ssh subprocess receives -p <port>."""
+    runner = SSHRunner(host="mars.example", user="scanuser", port=2222)
+    with patch("scripts.lib.ssh_runner.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stdout="ok\n", stderr="")
+        runner.run(["find", "/var/www", "-name", "x"])
+    args = mock_run.call_args[0][0]
+    assert "-p" in args
+    assert args[args.index("-p") + 1] == "2222"
+
+
+def test_ssh_runner_omits_p_flag_when_port_not_set():
+    """When port is None/omitted, no -p flag is added (defaults to ssh's port 22)."""
+    runner = SSHRunner(host="mars.example", user="scanuser")
+    with patch("scripts.lib.ssh_runner.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stdout="ok\n", stderr="")
+        runner.run(["find", "/var/www", "-name", "x"])
+    args = mock_run.call_args[0][0]
+    assert "-p" not in args

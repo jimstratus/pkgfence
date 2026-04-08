@@ -339,3 +339,42 @@ def test_registry_publish_rejects_unknown_sink_type(tmp_path):
     )
     with pytest.raises(RegistryError):
         load_registry(reg)
+
+
+def test_ssh_entry_accepts_optional_port(tmp_path):
+    """ssh items may optionally include a port (1-65535) for hosts that
+    don't run sshd on the default port 22."""
+    reg = tmp_path / "registry.yaml"
+    reg.write_text(
+        "version: 1\n"
+        "roots: []\n"
+        "projects: []\n"
+        "ssh:\n"
+        "  - name: mars\n"
+        "    host: mars.example\n"
+        "    user: scanuser\n"
+        "    port: 2222\n"
+        "    tier: 1\n"
+        "github: []\n"
+    )
+    data = load_registry(reg)
+    assert data["ssh"][0]["port"] == 2222
+
+
+def test_ssh_entry_rejects_invalid_port(tmp_path):
+    """port must be in 1-65535 range; out-of-range values are rejected."""
+    reg = tmp_path / "registry.yaml"
+    reg.write_text(
+        "version: 1\n"
+        "roots: []\n"
+        "projects: []\n"
+        "ssh:\n"
+        "  - name: mars\n"
+        "    host: mars.example\n"
+        "    user: scanuser\n"
+        "    port: 99999\n"
+        "    tier: 1\n"
+        "github: []\n"
+    )
+    with pytest.raises(RegistryError):
+        load_registry(reg)

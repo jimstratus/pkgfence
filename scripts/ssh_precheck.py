@@ -45,6 +45,7 @@ def main(argv=None) -> int:
         user=target["user"],
         key_file=target.get("key_file"),
         use_sudo=target.get("use_sudo", False),
+        port=target.get("port"),
     )
 
     # Check 1: osv-scanner present (must return a recognizable version string)

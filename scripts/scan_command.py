@@ -157,6 +157,7 @@ def run_scan(
             user=t["user"],
             key_file=t.get("key_file"),
             use_sudo=t.get("use_sudo", False),
+            port=t.get("port"),
         )
         for t in filtered_ssh
     }

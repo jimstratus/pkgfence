@@ -27,11 +27,13 @@ class SSHRunner:
         user: str,
         key_file: str | None = None,
         use_sudo: bool = False,
+        port: int | None = None,
     ):
         self.host = host
         self.user = user
         self.key_file = key_file
         self.use_sudo = use_sudo
+        self.port = port
 
     def run(self, command: List[str]) -> str:
         """Run a command on the remote via SSH. Raises SSHUnreachableError if
@@ -47,6 +49,8 @@ class SSHRunner:
             command = ["sudo", "-n"] + command
         ssh_cmd = ["ssh", "-o", "ConnectTimeout=10",
                    "-o", "BatchMode=yes"]  # never prompt for password
+        if self.port is not None:
+            ssh_cmd += ["-p", str(self.port)]
         if self.key_file:
             ssh_cmd += ["-i", self.key_file]
         ssh_cmd += [f"{self.user}@{self.host}"] + command
