@@ -37,3 +37,25 @@ no `curl`, no shell.
 
 **Test:** `test_ssh_command_allowlist_refuses_disallowed_commands`
 **Enforcement:** `ALLOWED_COMMANDS` frozenset in `scripts/lib/ssh_runner.py`.
+
+## S4: No remote file content exfiltration
+
+`scripts/scan_remote.py` and `scripts/discover_remote.py` MUST NOT
+retrieve manifest file contents from remote hosts. Only the following
+may transit from a remote host to the local machine:
+
+- **Paths** (output of `find`)
+- **Hashes** (output of `sha256sum`)
+- **Scanner JSON output** (stdout of `osv-scanner -L <path> --format json`)
+
+No `scp`/`rsync`/`sftp`/`dd` reads. No `cat <manifest>` piped back to
+local storage. No local copy of any remote source code or lockfile.
+
+This is the load-bearing promise that makes SSH mode safe against
+compromised hosts: a malicious lockfile on mars or bespin cannot reach
+the scanner's local machine via the pkgfence pipeline.
+
+**Test:** `tests/test_s4_no_remote_content_exfil.py` — static regex check
+over both remote modules.
+**Enforcement:** scan_remote.py and discover_remote.py only call
+`runner.run([<verb>, ...])` with verbs in `ALLOWED_COMMANDS`.
