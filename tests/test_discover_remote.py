@@ -1,7 +1,8 @@
 """Tests for remote L1 discovery (Phase 2 SSH mode)."""
 from unittest.mock import MagicMock
 
-from scripts.discover_remote import discover_remote_manifests
+from scripts.discover_remote import discover_remote_manifests, discover_remote_safely
+from scripts.lib.ssh_runner import SSHUnreachableError
 
 
 def test_discover_remote_emits_records_for_each_find_hit():
@@ -69,3 +70,17 @@ def test_build_find_command_escapes_parens_for_remote_shell():
     assert "-maxdepth" in cmd
     assert "-type" in cmd
     assert "-name" in cmd
+
+
+def test_discover_remote_safely_converts_unreachable_to_scan_error_record():
+    """When SSH is unreachable, yield a single SCAN_ERROR manifest record
+    that downstream report generation can render as a failed target."""
+    runner = MagicMock()
+    runner.run.side_effect = SSHUnreachableError("dev-host-1 unreachable")
+    target = {"name": "dev-host-1", "host": "h", "user": "u", "tier": 2,
+              "discover_paths": ["/var/www"]}
+    records = list(discover_remote_safely(target, runner))
+    assert len(records) == 1
+    assert records[0]["ecosystem"] == "SCAN_ERROR"
+    assert records[0]["target"] == "dev-host-1"
+    assert "unreachable" in records[0].get("error", "")

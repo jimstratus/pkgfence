@@ -101,3 +101,29 @@ def discover_remote_manifests(
             "manifest_hash": hash_hex,
             "tier": target.get("tier", 1),
         }
+
+
+def discover_remote_safely(
+    target: dict,
+    runner: SSHRunner,
+) -> Iterator[RemoteManifest]:
+    """Wrapper around discover_remote_manifests that converts an unreachable
+    ssh target into a single SCAN_ERROR record instead of propagating the
+    exception. This matches scan_manifest_safely's pattern for local scans:
+    one bad target must not block the entire scan.
+
+    S1 is NOT violated here — we don't fall back to a local scan. We emit a
+    diagnostic record and move on. The report clearly shows the target failed.
+    """
+    try:
+        yield from discover_remote_manifests(target, runner)
+    except SSHUnreachableError as e:
+        yield {
+            "target": target["name"],
+            "host": target.get("host", ""),
+            "path": "",
+            "ecosystem": "SCAN_ERROR",
+            "manifest_hash": "",
+            "tier": target.get("tier", 1),
+            "error": str(e),  # type: ignore[typeddict-unknown-key]
+        }
