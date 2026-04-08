@@ -1,6 +1,6 @@
 [project]
 name = "pkgfence"
-version = "0.1.0"
+version = "0.2.0"
 description = "Multi-codebase dependency and supply-chain vulnerability scanner — Claude Code skill"
 license = {text = "MIT"}
 requires-python = ">=3.11"

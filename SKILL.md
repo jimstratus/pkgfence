@@ -16,9 +16,11 @@ description: |
   secrets scanning (use Gitleaks), or anything outside dependency /
   supply chain scope.
 
-  Phase 1 (current): scans local registry roots only. SSH targets,
-  GitHub orgs, watch mode, audit mode, and the fix-recommendation
-  pipeline are deferred to later phases.
+  Phase 2 (current, v0.2.0): scans local registry roots AND remote SSH
+  targets (Pattern B — osv-scanner runs on the remote, only JSON transits
+  locally). Reports include YAML frontmatter for machine parsing and can
+  be auto-published to a central scp sink. GitHub orgs, watch mode, audit
+  mode, and the fix-recommendation pipeline are deferred to later phases.
 allowed-tools: Read, Grep, Glob, Bash, WebFetch, Task
 license: LICENSE
 ---
@@ -98,5 +100,6 @@ See [`scripts/lib/SAFETY_INVARIANTS.md`](scripts/lib/SAFETY_INVARIANTS.md).
 - Secrets scanning (use Gitleaks or TruffleHog)
 - Modify your project files (no auto-fix, no git commits, no PRs)
 - Run package-manager install commands (S2 invariant)
-- Anything in Phase 2+ (SSH, GitHub, watch mode, audit mode, fix
-  recommendations) — see `planning/plan.md` for the roadmap.
+- Anything in Phase 3+ (GitHub orgs, watch mode, audit mode, fix
+  recommendations, behavioral heuristics, EPSS/GHSA/Scorecard enrichment)
+  — see `planning/plan.md` for the roadmap.
