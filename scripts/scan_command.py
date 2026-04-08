@@ -20,6 +20,9 @@ from ruamel.yaml.error import YAMLError
 
 from scripts.discover import discover_manifests_full
 from scripts.scan_local import scan_all_manifests, detect_scanner
+from scripts.discover_remote import discover_remote_safely
+from scripts.scan_remote import scan_remote_manifests
+from scripts.lib.ssh_runner import SSHRunner
 from scripts.enrich_threats import enrich_with_kev
 from scripts.triage import (
     dedup_findings,
@@ -128,10 +131,41 @@ def run_scan(
     )
     log.info("L1 discovered %d manifests", len(manifests))
 
+    # Layer 1b: Remote discovery via SSH targets
+    ssh_targets = list(reg.get("ssh") or [])
+    tier_set = {1}  # default tier filter — matches local
+    filtered_ssh = [t for t in ssh_targets if t.get("tier", 1) in tier_set]
+    remote_manifests: list[dict] = []
+    for target in filtered_ssh:
+        runner = SSHRunner(
+            host=target["host"],
+            user=target["user"],
+            key_file=target.get("key_file"),
+            use_sudo=target.get("use_sudo", False),
+        )
+        remote_manifests.extend(discover_remote_safely(target, runner))
+    log.info("L1 remote discovered %d manifests across %d ssh targets",
+             len(remote_manifests), len(filtered_ssh))
+
     # Layer 2: Scanner orchestration
     log.info("L2 scanner orchestration starting")
     findings = scan_all_manifests(manifests)
     log.info("L2 found %d raw findings", len(findings))
+
+    # Layer 2b: Remote scanning (one SSHRunner per target; SCAN_ERROR records
+    # already in remote_manifests for unreachable targets pass through)
+    for target in filtered_ssh:
+        target_manifests = [m for m in remote_manifests if m.get("target") == target["name"]]
+        if not target_manifests:
+            continue
+        runner = SSHRunner(
+            host=target["host"],
+            user=target["user"],
+            key_file=target.get("key_file"),
+            use_sudo=target.get("use_sudo", False),
+        )
+        findings.extend(scan_remote_manifests(target_manifests, runner))
+    log.info("L2 total findings (local + remote): %d", len(findings))
 
     # Layer 3: Threat enrichment
     log.info("L3 threat enrichment starting")
@@ -182,7 +216,7 @@ def run_scan(
     snapshot = {
         "scanner_version": detect_scanner("osv-scanner") or "osv-api-fallback",
         "kev_timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        "targets_scanned": len(manifests),
+        "targets_scanned": len(manifests) + len(remote_manifests),
         "packages_checked": len(findings),  # rough proxy
     }
     report_md = render_markdown_report(findings, snapshot, degraded_modes)
