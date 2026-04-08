@@ -1,5 +1,7 @@
 """Tests for registry schema validation."""
 import pytest
+import subprocess
+import sys
 from pathlib import Path
 from ruamel.yaml import YAML
 import jsonschema
@@ -138,9 +140,6 @@ def test_example_registry_validates():
     assert reg["version"] == 1
     assert len(reg["roots"]) > 0
 
-
-import subprocess
-import sys
 
 def test_registry_cli_validate_passes_on_valid(tmp_path):
     reg = tmp_path / "registry.yaml"
@@ -291,3 +290,52 @@ def test_registry_example_yaml_validates(tmp_path):
     copying it will get schema errors — so lock the example here."""
     example = SKILL_ROOT / "config" / "registry.example.yaml"
     load_registry(example)  # raises RegistryError if invalid
+
+
+def test_registry_accepts_publish_scp_sink(tmp_path):
+    """publish: array with type=scp and required fields validates."""
+    reg = tmp_path / "registry.yaml"
+    reg.write_text(
+        "version: 1\n"
+        "roots: []\n"
+        "projects: []\n"
+        "ssh: []\n"
+        "github: []\n"
+        "publish:\n"
+        "  - type: scp\n"
+        "    destination: pkgfence@control.example\n"
+        "    key_file: ~/.ssh/pkgfence-publish\n"
+        "    remote_base: /opt/pkgfence-reports\n"
+        "    include: [md, sarif, jsonl]\n"
+    )
+    data = load_registry(reg)
+    assert len(data["publish"]) == 1
+    assert data["publish"][0]["type"] == "scp"
+    assert data["publish"][0]["destination"] == "pkgfence@control.example"
+
+
+def test_registry_publish_is_optional(tmp_path):
+    """publish: is optional — registries without it must still validate."""
+    reg = tmp_path / "registry.yaml"
+    reg.write_text(
+        "version: 1\nroots: []\nprojects: []\nssh: []\ngithub: []\n"
+    )
+    data = load_registry(reg)
+    assert "publish" not in data or data["publish"] == []
+
+
+def test_registry_publish_rejects_unknown_sink_type(tmp_path):
+    """publish entries with type other than 'scp' are rejected."""
+    reg = tmp_path / "registry.yaml"
+    reg.write_text(
+        "version: 1\n"
+        "roots: []\n"
+        "projects: []\n"
+        "ssh: []\n"
+        "github: []\n"
+        "publish:\n"
+        "  - type: rclone\n"  # Not yet supported
+        "    destination: foo:bar\n"
+    )
+    with pytest.raises(RegistryError):
+        load_registry(reg)

@@ -97,3 +97,27 @@ properties:
           type: string
           enum: [api, clone]
           default: api
+  publish:
+    type: array
+    items:
+      type: object
+      required: [type, destination]
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          enum: [scp]
+        destination:
+          type: string
+          minLength: 1
+        key_file:
+          type: string
+        remote_base:
+          type: string
+          default: /opt/pkgfence-reports
+        include:
+          type: array
+          items:
+            type: string
+            enum: [md, sarif, jsonl]
+          default: [md, sarif, jsonl]

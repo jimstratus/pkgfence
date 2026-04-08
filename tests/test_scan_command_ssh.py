@@ -1,5 +1,6 @@
 """End-to-end scan_command tests with SSH targets (Phase 2)."""
 import json
+import pytest
 from unittest.mock import patch, MagicMock
 
 from scripts.scan_command import run_scan
@@ -276,4 +277,85 @@ def test_run_scan_with_adhoc_path_skips_ssh_targets(tmp_path, tmp_state):
                 fail_on="critical",
             )
 
+    assert exit_code == 0
+
+
+def test_run_scan_invokes_publish_when_sinks_configured(tmp_path, tmp_state):
+    """When the registry has a publish: section, scan_command calls
+    publish_run after writing the local artifacts. Mock publish_run to
+    verify the call without actually invoking scp."""
+    reg = tmp_path / "registry.yaml"
+    reg.write_text(
+        "version: 1\n"
+        "roots: []\n"
+        "projects: []\n"
+        "ssh: []\n"
+        "github: []\n"
+        "publish:\n"
+        "  - type: scp\n"
+        "    destination: pkgfence@control.example\n"
+        "    key_file: ~/.ssh/pkgfence-publish\n"
+    )
+
+    with patch("scripts.scan_command.publish_run") as mock_publish:
+        mock_publish.return_value = []
+        with patch("scripts.scan_command.KEVClient") as mock_kev_cls:
+            mock_kev = MagicMock()
+            mock_kev._known_set = set()
+            mock_kev._loaded = True
+            mock_kev.is_degraded = False
+            mock_kev.is_known_exploited.return_value = False
+            mock_kev.refresh = MagicMock()
+            mock_kev_cls.return_value = mock_kev
+
+            exit_code, report_path = run_scan(
+                registry_path=reg,
+                state_dir=tmp_state,
+                fail_on="critical",
+            )
+
+    assert exit_code == 0
+    # publish_run was called once with the configured sinks
+    assert mock_publish.call_count == 1
+    call_kwargs = mock_publish.call_args.kwargs
+    assert len(call_kwargs["sinks"]) == 1
+    assert call_kwargs["sinks"][0]["type"] == "scp"
+    assert call_kwargs["sinks"][0]["destination"] == "pkgfence@control.example"
+    # state_dir and run_id were also passed
+    assert call_kwargs["state_dir"] == tmp_state
+    assert "run_id" in call_kwargs
+
+
+def test_run_scan_publish_failures_do_not_change_exit_code(tmp_path, tmp_state):
+    """Even if publish_run reports failures, scan exit code is unchanged
+    (publish is best-effort, scan verdict is the source of truth)."""
+    reg = tmp_path / "registry.yaml"
+    reg.write_text(
+        "version: 1\n"
+        "roots: []\n"
+        "projects: []\n"
+        "ssh: []\n"
+        "github: []\n"
+        "publish:\n"
+        "  - type: scp\n"
+        "    destination: pkgfence@control.example\n"
+    )
+
+    with patch("scripts.scan_command.publish_run") as mock_publish:
+        mock_publish.return_value = ["publish: FAIL pkgfence@control.example: simulated"]
+        with patch("scripts.scan_command.KEVClient") as mock_kev_cls:
+            mock_kev = MagicMock()
+            mock_kev._known_set = set()
+            mock_kev._loaded = True
+            mock_kev.is_degraded = False
+            mock_kev.refresh = MagicMock()
+            mock_kev_cls.return_value = mock_kev
+
+            exit_code, _ = run_scan(
+                registry_path=reg,
+                state_dir=tmp_state,
+                fail_on="critical",
+            )
+
+    # Even with publish failures, exit code stays 0 (clean local scan)
     assert exit_code == 0

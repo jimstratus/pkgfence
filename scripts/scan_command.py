@@ -42,6 +42,7 @@ from scripts.lib.exceptions import load_exceptions
 from scripts.lib.audit_log import append_audit_record
 from scripts.lib.sarif import findings_to_sarif
 from scripts.lib.logger import get_logger
+from scripts.publish import publish_run
 
 log = get_logger(__name__)
 
@@ -277,6 +278,18 @@ def run_scan(
             "degraded_modes": degraded_modes,
         },
     )
+
+    # Layer 5: Publish artifacts to configured sinks (best-effort)
+    publish_failures = publish_run(
+        sinks=list(reg.get("publish") or []),
+        state_dir=state_dir,
+        run_id=run_id,
+    )
+    if publish_failures:
+        log.warning("publish: %d sink failure(s) on run %s",
+                    len(publish_failures), run_id)
+        for failure in publish_failures:
+            log.warning("  %s", failure)
 
     log.info("scan complete: exit %d, %d findings", exit_code, len(findings))
 
