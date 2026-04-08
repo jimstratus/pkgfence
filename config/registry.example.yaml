@@ -21,6 +21,17 @@ projects:
     tier: 1
     note: "Vite/TS project that lives next to projects/ subdir"
 
-# SSH and GitHub support is added in Phase 2 - leave empty for Phase 1
-ssh: []
+ssh:
+  # Example: tier-2 Proxmox LXC with ~/.ssh/config IdentityFile
+  - name: dev-host-1
+    host: 192.0.2.10
+    user: devuser
+    tier: 2
+    discover_paths:
+      - /var/www
+      - /opt
+    # Optional: override the default ssh key for this host
+    # key_file: ~/.ssh/lab-key
+    # Optional: run osv-scanner via `sudo -n` (requires NOPASSWD entry)
+    # use_sudo: true
 github: []

@@ -283,3 +283,11 @@ def test_ssh_entry_without_key_file_still_valid(tmp_path):
     )
     data = load_registry(reg)
     assert "key_file" not in data["ssh"][0]
+
+
+def test_registry_example_yaml_validates(tmp_path):
+    """config/registry.example.yaml must validate against the schema.
+    If the example drifts out of sync with the schema, future users
+    copying it will get schema errors — so lock the example here."""
+    example = SKILL_ROOT / "config" / "registry.example.yaml"
+    load_registry(example)  # raises RegistryError if invalid
