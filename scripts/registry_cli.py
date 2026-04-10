@@ -52,6 +52,14 @@ def cmd_list(args) -> int:
     print(f"\nGitHub accounts ({len(reg.get('github', []))}):")
     for g in reg.get("github", []):
         print(f"  - {g['account']}: orgs={g.get('orgs', [])}")
+    sinks = reg.get("publish", [])
+    print(f"\nPublish sinks ({len(sinks)}):")
+    if not sinks:
+        print("  (none configured)")
+    for s in sinks:
+        print(f"  - {s.get('type', '?')}: {s.get('destination', '?')}")
+        print(f"    remote_base: {s.get('remote_base', '/opt/pkgfence-reports')}")
+        print(f"    include: {s.get('include', ['md', 'sarif', 'jsonl'])}")
     return 0
 
 

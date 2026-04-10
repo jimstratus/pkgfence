@@ -1,7 +1,8 @@
 """Tests for the `registry_cli add-ssh` subcommand (Phase 2)."""
+import argparse
 from pathlib import Path
 
-from scripts.registry_cli import main
+from scripts.registry_cli import cmd_list, main
 from scripts.lib.registry import load_registry
 
 
@@ -132,3 +133,18 @@ def test_add_ssh_rejects_backslash_in_discover_path(tmp_path, capsys):
         "--discover-path", "/opt\\weird",
     ])
     assert rc == 3
+
+
+def test_list_shows_publish_section(tmp_path, capsys):
+    reg_yaml = tmp_path / "registry.yaml"
+    reg_yaml.write_text(
+        "version: 1\nroots: []\nprojects: []\nssh: []\ngithub: []\n"
+        "publish:\n  - type: scp\n    destination: pkgfence@control.example.com\n"
+        "    remote_base: /opt/pkgfence-reports\n    include: [md, sarif, jsonl]\n"
+    )
+    args = argparse.Namespace(registry=str(reg_yaml))
+    cmd_list(args)
+    out = capsys.readouterr().out
+    assert "Publish sinks" in out
+    assert "scp" in out
+    assert "pkgfence@control.example.com" in out

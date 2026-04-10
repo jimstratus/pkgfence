@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.2.5 — Phase 2.5: Trustworthy Signal (2026-04-10)
+
+### New features
+- **Is-installed check** — npm and composer findings demoted to INFO when package not actually installed on disk (node_modules/vendor directory missing). Preserves original severity for transparency.
+- **EOL software detection** — curated catalog detects end-of-life installations (Pydio, WordPress, Roundcube, phpMyAdmin, Joomla, Drupal, MediaWiki, Nextcloud). Emits HIGH findings for confirmed EOL versions.
+- **Notify subcommand** (`pkgfence-notify`) — compares two most recent scan reports, fires webhook when new findings above threshold. Generic JSON POST compatible with n8n, Telegram, Discord, Slack.
+- **`scanner_path` registry field** — optional absolute path to scanner binary on SSH targets, solving the ~/.local/bin PATH issue.
+
+### Improvements
+- **Registry list** now shows publish sink configuration
+- **SSHRunner.run_with_rc()** — new method exposing exit codes for is-installed checks
+- **SSHRunner allowlist** accepts absolute paths (basename comparison)
+- **S4a safety exception** — documented scoped exception for EOL version file reads
+
+### Documentation
+- ACL prerequisite note for Plesk hosts (acl package required on Debian)
+- Corrected Pattern A1 with mask::rwx (from earlier session fix)
+
 ## v0.2.0 — 2026-04-08 (Phase 2 — SSH-first + centralized publish)
 
 Second working release. Adds SSH target support (discover + scan remote

@@ -156,6 +156,9 @@ password prompt, no hang.
 
 ## Plesk-specific notes (mars, bespin)
 
+- **ACL package required:** Run `sudo apt-get install -y acl` before
+  using setfacl commands. Bespin required this step; mars had the
+  package pre-installed. Without it, `setfacl: command not found`.
 - **Do NOT scan `/usr/local/psa/`** (Plesk control-panel internals).
   Leave it out of `discover_paths`.
 - Plesk manages `/var/www/vhosts/<domain>/httpdocs/` per-domain. The
