@@ -1,4 +1,4 @@
-"""Layer: Is-installed check for local findings.
+"""Layer: Is-installed check for local and remote findings.
 
 Determines whether a package referenced in a lockfile is actually installed
 on disk. This reduces false-positive CRITICAL fatigue — a finding for a
@@ -9,9 +9,10 @@ Supported ecosystems:
     composer — checks vendor/<vendor>/<package>/ adjacent to composer.lock
     pip      — skipped (virtualenv ambiguity makes this unreliable)
 """
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from urllib.parse import unquote
 
+from scripts.lib.ssh_runner import SSHRunner, SSHUnreachableError
 from scripts.lib.types import Finding
 
 
@@ -76,4 +77,42 @@ def check_installed_local(finding: Finding) -> Finding:
         return finding
 
     # Unsupported ecosystem (pip, cargo, etc.) — leave finding unchanged
+    return finding
+
+
+def check_installed_remote(finding: Finding, runner: SSHRunner) -> Finding:
+    """Check whether the package in *finding* is installed on the remote host.
+
+    Uses ``runner.run_with_rc(["stat", install_path])`` — rc=0 means installed,
+    rc≠0 means not installed.
+
+    On SSHUnreachableError: returns the finding unchanged (unknown state,
+    do not demote). For unsupported ecosystems (pip, etc.): returns unchanged.
+
+    Uses PurePosixPath for remote paths (safe on Windows hosts too).
+    """
+    manifest_path = finding.get("manifest_path", "")
+    lockfile = _lockfile_name(manifest_path)
+    manifest_dir = PurePosixPath(manifest_path).parent
+
+    if lockfile == "package-lock.json":
+        pkg_name = _extract_package_name(finding.get("purl", ""))
+        install_path = str(manifest_dir / "node_modules" / pkg_name)
+    elif lockfile == "composer.lock":
+        pkg_name = _extract_package_name(finding.get("purl", ""))
+        parts = pkg_name.split("/", 1)
+        if len(parts) == 2:
+            install_path = str(manifest_dir / "vendor" / parts[0] / parts[1])
+        else:
+            install_path = str(manifest_dir / "vendor" / pkg_name)
+    else:
+        # Unsupported ecosystem (pip, cargo, etc.) — leave finding unchanged
+        return finding
+
+    try:
+        _stdout, rc = runner.run_with_rc(["stat", install_path])
+        finding["installed"] = rc == 0
+    except SSHUnreachableError:
+        pass  # Unknown state — do not set installed field
+
     return finding
