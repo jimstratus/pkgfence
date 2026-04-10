@@ -4,7 +4,7 @@ These must preserve S1 (no silent fallback) and S3 (command allowlist)."""
 import pytest
 from unittest.mock import patch, MagicMock
 
-from scripts.lib.ssh_runner import SSHRunner, SSHUnreachableError
+from scripts.lib.ssh_runner import SSHRunner, SSHUnreachableError, ALLOWED_COMMANDS
 
 
 def test_ssh_runner_accepts_key_file_and_passes_i_flag():
@@ -120,3 +120,58 @@ def test_ssh_runner_subprocess_call_includes_encoding_kwargs():
     assert kwargs.get("encoding") == "utf-8"
     assert kwargs.get("errors") == "replace"
     assert kwargs.get("capture_output") is True
+
+
+# ---------------------------------------------------------------------------
+# Phase 2.5 Task 1: run_with_rc() and basename allowlist
+# ---------------------------------------------------------------------------
+
+def test_run_with_rc_returns_stdout_and_returncode():
+    """run_with_rc() returns (stdout, returncode) tuple on success."""
+    runner = SSHRunner(host="h.example", user="u")
+    with patch("scripts.lib.ssh_runner.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stdout="found\n", stderr="")
+        result = runner.run_with_rc(["stat", "/usr/local/bin/osv-scanner"])
+    assert result == ("found\n", 0)
+
+
+def test_run_with_rc_returns_nonzero_on_missing_file():
+    """run_with_rc() returns (stdout, 1) when command exits with rc=1 (file not found)."""
+    runner = SSHRunner(host="h.example", user="u")
+    with patch("scripts.lib.ssh_runner.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="No such file")
+        result = runner.run_with_rc(["stat", "/nonexistent/path"])
+    assert result == ("", 1)
+
+
+def test_run_with_rc_raises_on_ssh_failure():
+    """run_with_rc() raises SSHUnreachableError when rc=255 (SSH connect failure)."""
+    runner = SSHRunner(host="h.example", user="u")
+    with patch("scripts.lib.ssh_runner.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=255, stdout="", stderr="Connection refused")
+        with pytest.raises(SSHUnreachableError):
+            runner.run_with_rc(["stat", "/tmp/x"])
+
+
+def test_run_with_rc_rejects_disallowed_command():
+    """run_with_rc() raises ValueError for commands not in the allowlist."""
+    runner = SSHRunner(host="h.example", user="u")
+    with pytest.raises(ValueError, match="not in SSH allowlist"):
+        runner.run_with_rc(["curl", "http://evil.example"])
+
+
+def test_allowlist_accepts_absolute_path_with_allowed_basename():
+    """Absolute path /usr/local/bin/osv-scanner passes because basename 'osv-scanner' is allowed."""
+    runner = SSHRunner(host="h.example", user="u")
+    with patch("scripts.lib.ssh_runner.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stdout="ok\n", stderr="")
+        # Should NOT raise ValueError
+        runner.run(["/usr/local/bin/osv-scanner", "--version"])
+    mock_run.assert_called_once()
+
+
+def test_allowlist_rejects_absolute_path_with_disallowed_basename():
+    """Absolute path /usr/bin/curl fails because basename 'curl' is not in the allowlist."""
+    runner = SSHRunner(host="h.example", user="u")
+    with pytest.raises(ValueError, match="not in SSH allowlist"):
+        runner.run(["/usr/bin/curl", "http://evil.example"])
