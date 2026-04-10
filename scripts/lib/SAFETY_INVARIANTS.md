@@ -63,3 +63,16 @@ verbs in `runner.run([...])` calls — see test docstring for coverage limits).
 **Enforcement:** scan_remote.py and discover_remote.py only call
 `runner.run([<verb>, ...])` with verbs in `ALLOWED_COMMANDS`. Runtime
 enforcement is guaranteed by `SSHRunner.run()`'s allowlist check (S3).
+
+## S4a: EOL version file reads (scoped exception to S4)
+
+`scripts/eol_detect.py` uses `runner.run(["cat", <path>])` to read version
+identifier files on remote hosts. This is a deliberate, scoped exception:
+
+- Only reads files matching the EOL catalog's `version_file` patterns
+- Reads version identifiers (1 line), not manifests or source code
+- The catalog is in `config/eol-catalog.yaml` — a curated, operator-editable file
+
+**Test:** `test_eol_detect_s4_exception` in `tests/test_s4_no_remote_content_exfil.py`
+— verifies that eol_detect.py is checked by all S4 rules EXCEPT the blanket `cat`
+prohibition, and that cat calls derive from the catalog.

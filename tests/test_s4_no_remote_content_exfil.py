@@ -66,3 +66,28 @@ def test_scan_remote_only_uses_allowlisted_commands():
         for verb in matches:
             assert verb in ALLOWED_COMMANDS, \
                 f"{module.name} invokes {verb!r}, not in ALLOWED_COMMANDS"
+
+
+# ---------------------------------------------------------------------------
+# S4a: scoped exception for eol_detect.py
+# ---------------------------------------------------------------------------
+
+def test_eol_detect_checked_by_s4_except_cat():
+    """eol_detect.py is checked by all S4 rules EXCEPT the blanket cat prohibition."""
+    src = (Path(__file__).parent.parent / "scripts" / "eol_detect.py").read_text()
+    # Should NOT contain scp, rsync, sftp, dd, or other forbidden transport patterns
+    for pattern in FORBIDDEN_CONTENT_RETRIEVAL_PATTERNS:
+        if "cat" in pattern:
+            continue  # skip cat ban — scoped S4a exception
+        assert not re.search(pattern, src), (
+            f"eol_detect.py contains forbidden S4 pattern: {pattern}"
+        )
+
+
+def test_eol_detect_uses_cat_for_version_files():
+    """eol_detect.py uses cat — confirming the S4a exception is exercised."""
+    src = (Path(__file__).parent.parent / "scripts" / "eol_detect.py").read_text()
+    # The module SHOULD contain cat calls (for version file reads)
+    assert '"cat"' in src or "'cat'" in src, (
+        "eol_detect.py should use cat for reading remote version files"
+    )
