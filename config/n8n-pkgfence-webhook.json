@@ -1,0 +1,155 @@
+{
+  "name": "pkgfence Alert Router",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "pkgfence-alerts",
+        "responseMode": "onReceived",
+        "responseData": "allEntries",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-triggered",
+              "leftValue": "={{ $json.body.triggered }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "filter-triggered",
+      "name": "Only If Triggered",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "msg-text",
+              "name": "message",
+              "value": "=🔒 *pkgfence Alert*\n\n*Scanner:* {{ $json.body.scanner_host }}\n*Run:* `{{ $json.body.run_id }}`\n*Threshold:* {{ $json.body.threshold }}\n\n*New findings:*\n{{ $json.body.new_findings.critical > 0 ? '🔴 Critical: ' + $json.body.new_findings.critical + '\\n' : '' }}{{ $json.body.new_findings.high > 0 ? '🟠 High: ' + $json.body.new_findings.high + '\\n' : '' }}{{ $json.body.new_findings.medium > 0 ? '🟡 Medium: ' + $json.body.new_findings.medium + '\\n' : '' }}{{ $json.body.new_findings.low > 0 ? '🔵 Low: ' + $json.body.new_findings.low + '\\n' : '' }}\n*Targets:* {{ $json.body.targets.join(', ') }}\n*Since:* `{{ $json.body.previous_run_id }}`\n\n{{ $json.body.summary }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "format-message",
+      "name": "Format Alert Message",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "={{ $json.message }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "telegram-send",
+      "name": "Send Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [900, 200],
+      "credentials": {
+        "telegramApi": {
+          "id": "YOUR_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "YOUR_DISCORD_WEBHOOK_URL",
+        "sendTo": "",
+        "message": "={{ $json.message }}"
+      },
+      "id": "discord-send",
+      "name": "Send Discord",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [900, 400],
+      "disabled": true
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Only If Triggered",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Only If Triggered": {
+      "main": [
+        [
+          {
+            "node": "Format Alert Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Alert Message": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send Discord",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "pkgfence"
+    },
+    {
+      "name": "security"
+    }
+  ]
+}
