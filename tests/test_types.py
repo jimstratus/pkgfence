@@ -2,6 +2,16 @@
 from scripts.lib.types import Finding, new_finding
 
 
+def test_finding_accepts_installed_and_original_severity():
+    """Finding TypedDict accepts new is-installed fields."""
+    f = new_finding(purl="pkg:npm/foo@1.0", vuln_id="GHSA-1", severity="high",
+                    manifest_path="/a/package-lock.json", target="local")
+    f["installed"] = False
+    f["original_severity"] = "high"
+    assert f["installed"] is False
+    assert f["original_severity"] == "high"
+
+
 def test_new_finding_has_all_required_fields():
     f = new_finding(
         purl="pkg:npm/lodash@4.17.20",

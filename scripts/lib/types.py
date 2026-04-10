@@ -39,6 +39,8 @@ class Finding(TypedDict, total=False):
         mal_flagged         — bool, true if id or aliases contain MAL-* prefix
         remediation         — copy-pasteable command to fix
         scanner_source      — 'osv-scanner' | 'osv-api' | etc. (for conflict resolution)
+        installed           — True/False whether the package is installed (absent = not applicable)
+        original_severity   — severity before demotion (set only when severity demotion occurs)
     """
     purl: str
     vuln_id: str
@@ -58,6 +60,8 @@ class Finding(TypedDict, total=False):
     mal_flagged: bool
     remediation: str
     scanner_source: str
+    installed: bool
+    original_severity: Severity
 
 
 def new_finding(
