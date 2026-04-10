@@ -278,6 +278,37 @@ def test_frontmatter_routes_unknown_severity_to_other_bucket():
     assert data["findings_by_severity"]["info"] == 0
 
 
+def test_report_shows_demotion_note():
+    """Demoted findings show original severity and not-installed note."""
+    f = new_finding(purl="pkg:npm/evil@1.0", vuln_id="MAL-123",
+                    severity="info", manifest_path="/a/package-lock.json", target="local")
+    f["installed"] = False
+    f["original_severity"] = "critical"
+    report = render_markdown_report([f], {"scanner_version": "2.3.3"}, [])
+    report_lower = report.lower()
+    assert "was critical" in report_lower
+    assert "not installed" in report_lower
+
+
+def test_report_shows_eol_finding():
+    """EOL findings render with their vuln_id and description."""
+    f = new_finding(purl="pkg:generic/pydio@8.2.5", vuln_id="EOL-Pydio-8.2.5",
+                    severity="high", manifest_path="/var/www/apps/pydio/",
+                    target="mars", description="Pydio 8.2.5 is end-of-life.")
+    report = render_markdown_report([f], {"scanner_version": "2.3.3"}, [])
+    assert "EOL-Pydio-8.2.5" in report
+    assert "end-of-life" in report.lower()
+
+
+def test_report_no_demotion_note_when_not_demoted():
+    """Normal findings don't show demotion note."""
+    f = new_finding(purl="pkg:npm/foo@1.0", vuln_id="GHSA-1",
+                    severity="high", manifest_path="/a/package-lock.json", target="local")
+    report = render_markdown_report([f], {"scanner_version": "2.3.3"}, [])
+    assert "was " not in report.lower() or "was high" not in report.lower()
+    assert "not installed" not in report.lower()
+
+
 def test_frontmatter_severity_keys_in_severity_rank_order():
     """findings_by_severity should appear in severity-rank order
     (critical, high, medium, low, info, other) — NOT alphabetical —

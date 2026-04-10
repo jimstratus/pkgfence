@@ -118,13 +118,18 @@ def _render_finding_card(f: Finding) -> str:
         "LOW": "\U0001f535",
         "INFO": "\u2139\ufe0f",
     }.get(sev, "\u2022")
+    sev_display = sev
+    if f.get("original_severity"):
+        sev_display = f"{sev} (was {f['original_severity'].upper()})"
     lines = [
-        f"### {icon} {sev} \u2014 `{f.get('vuln_id', '?')}`",
+        f"### {icon} {sev_display} \u2014 `{f.get('vuln_id', '?')}`",
         "",
         f"- **Package:** `{f.get('purl', '?')}`",
         f"- **Manifest:** `{f.get('manifest_path', '?')}`",
         f"- **Target:** {f.get('target', '?')}",
     ]
+    if f.get("installed") is False:
+        lines.append("- **Note:** not installed")
     if f.get("actively_exploited"):
         lines.append("- **\u26a0\ufe0f Actively exploited (CISA KEV)**")
     if f.get("mal_flagged"):
