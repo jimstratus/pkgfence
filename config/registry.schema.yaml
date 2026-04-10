@@ -79,6 +79,7 @@ properties:
           type: string
           enum: [curl, manual]
           default: curl
+        scanner_path: {type: string}
         discover_paths:
           type: array
           items: {type: string}

@@ -34,4 +34,7 @@ ssh:
     # key_file: ~/.ssh/lab-key
     # Optional: run osv-scanner via `sudo -n` (requires NOPASSWD entry)
     # use_sudo: true
+    # Optional: absolute path to osv-scanner on the remote host.
+    # Use this when ~/.local/bin is not in the non-interactive SSH PATH.
+    # scanner_path: /home/devuser/.local/bin/osv-scanner
 github: []

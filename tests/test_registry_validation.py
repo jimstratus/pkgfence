@@ -378,3 +378,22 @@ def test_ssh_entry_rejects_invalid_port(tmp_path):
     )
     with pytest.raises(RegistryError):
         load_registry(reg)
+
+
+def test_ssh_target_with_scanner_path_is_valid(tmp_path):
+    """Registry with scanner_path field passes validation."""
+    reg_yaml = tmp_path / "registry.yaml"
+    reg_yaml.write_text(
+        "version: 1\n"
+        "roots: []\n"
+        "projects: []\n"
+        "ssh:\n"
+        "  - name: test\n"
+        "    host: 10.0.0.1\n"
+        "    user: scanner\n"
+        "    scanner_path: /home/scanner/.local/bin/osv-scanner\n"
+        "    discover_paths: ['/var/www']\n"
+        "github: []\n"
+    )
+    reg = load_registry(reg_yaml)
+    assert reg["ssh"][0]["scanner_path"] == "/home/scanner/.local/bin/osv-scanner"
