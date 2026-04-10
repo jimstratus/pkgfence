@@ -181,7 +181,11 @@ def run_scan(
         if not target_manifests:
             continue
         findings.extend(
-            scan_remote_manifests(target_manifests, target_runners[target["name"]])
+            scan_remote_manifests(
+                target_manifests,
+                target_runners[target["name"]],
+                scanner_path=target.get("scanner_path"),
+            )
         )
     log.info("L2 total findings (local + remote): %d", len(findings))
 

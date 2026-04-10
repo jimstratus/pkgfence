@@ -7,6 +7,32 @@ from scripts.scan_local import ScannerError
 from scripts.scan_remote import scan_remote_manifest, scan_remote_manifests
 
 
+def test_scan_remote_manifest_uses_scanner_path(mocker):
+    """When scanner_path is provided, it replaces the bare 'osv-scanner' verb."""
+    manifest = {
+        "target": "test-host", "host": "10.0.0.1", "path": "/var/www/package-lock.json",
+        "ecosystem": "npm", "manifest_hash": "abc123", "tier": 1,
+    }
+    mock_runner = mocker.MagicMock()
+    mock_runner.run.return_value = '{"results": []}'
+    scan_remote_manifest(manifest, mock_runner, scanner_path="/opt/bin/osv-scanner")
+    cmd = mock_runner.run.call_args[0][0]
+    assert cmd[0] == "/opt/bin/osv-scanner"
+
+
+def test_scan_remote_manifest_default_scanner(mocker):
+    """Without scanner_path, uses bare 'osv-scanner'."""
+    manifest = {
+        "target": "test-host", "host": "10.0.0.1", "path": "/var/www/package-lock.json",
+        "ecosystem": "npm", "manifest_hash": "abc123", "tier": 1,
+    }
+    mock_runner = mocker.MagicMock()
+    mock_runner.run.return_value = '{"results": []}'
+    scan_remote_manifest(manifest, mock_runner)
+    cmd = mock_runner.run.call_args[0][0]
+    assert cmd[0] == "osv-scanner"
+
+
 OSV_JSON_FIXTURE = """
 {
   "results": [

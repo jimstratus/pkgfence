@@ -31,12 +31,15 @@ def _scan_error_finding(manifest: RemoteManifest, description: str) -> Finding:
 def scan_remote_manifest(
     manifest: RemoteManifest,
     runner: SSHRunner,
+    scanner_path: str | None = None,
 ) -> list[Finding]:
     """Run osv-scanner on the remote host against a single remote manifest.
 
     Args:
         manifest: a RemoteManifest dict (from discover_remote)
         runner: SSHRunner bound to the remote host
+        scanner_path: absolute path to osv-scanner on the remote; falls back
+            to bare 'osv-scanner' if None (relies on remote PATH)
 
     Returns:
         list[Finding] (possibly one SCAN_ERROR record on failure).
@@ -48,7 +51,7 @@ def scan_remote_manifest(
             manifest.get("error", "remote discovery failed"),
         )]
 
-    cmd = ["osv-scanner", "-L", manifest["path"], "--format", "json"]
+    cmd = [scanner_path or "osv-scanner", "-L", manifest["path"], "--format", "json"]
     try:
         raw = runner.run(cmd)
     except SSHUnreachableError as e:
@@ -68,11 +71,12 @@ def scan_remote_manifest(
 def scan_remote_manifests(
     manifests: list[RemoteManifest],
     runner: SSHRunner,
+    scanner_path: str | None = None,
 ) -> list[Finding]:
     """Scan a batch of remote manifests using a single SSHRunner.
     Per-manifest errors are isolated via scan_remote_manifest's SCAN_ERROR wrapping.
     """
     findings: list[Finding] = []
     for m in manifests:
-        findings.extend(scan_remote_manifest(m, runner))
+        findings.extend(scan_remote_manifest(m, runner, scanner_path=scanner_path))
     return findings

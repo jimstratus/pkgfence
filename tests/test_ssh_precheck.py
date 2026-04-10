@@ -119,6 +119,42 @@ def test_precheck_garbage_version_output_fails(tmp_path, capsys):
     assert rc == 2
 
 
+def test_precheck_uses_scanner_path_for_version_check(tmp_path, capsys):
+    """When the registry entry has scanner_path, precheck uses it instead of bare 'osv-scanner'."""
+    reg = tmp_path / "registry.yaml"
+    reg.write_text(
+        "version: 1\n"
+        "roots: []\n"
+        "projects: []\n"
+        "ssh:\n"
+        "  - name: dev-host-1\n"
+        "    host: 192.0.2.10\n"
+        "    user: devuser\n"
+        "    tier: 2\n"
+        "    scanner_path: /opt/bin/osv-scanner\n"
+        "    discover_paths: ['/var/www']\n"
+        "github: []\n"
+    )
+
+    call_log: list = []
+
+    def fake_run(self, command):
+        call_log.append(command)
+        if command[0] == "/opt/bin/osv-scanner":
+            return "osv-scanner version: 2.3.3\n"
+        if command[0] == "stat":
+            return "  File: /var/www\n  Size: 4096\n"
+        return ""
+
+    with patch("scripts.lib.ssh_runner.SSHRunner.run", new=fake_run):
+        rc = main(["--registry", str(reg), "dev-host-1"])
+    assert rc == 0
+    # Confirm the absolute path was used, not the bare verb
+    version_calls = [c for c in call_log if len(c) > 0 and "osv-scanner" in c[0]]
+    assert len(version_calls) == 1
+    assert version_calls[0][0] == "/opt/bin/osv-scanner"
+
+
 def test_precheck_multiple_discover_paths_reports_all_results(tmp_path, capsys):
     """With multiple discover_paths, precheck reports the status of all
     paths (OK or FAIL) before returning, not just the first failure."""

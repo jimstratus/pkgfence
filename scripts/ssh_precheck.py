@@ -49,8 +49,9 @@ def main(argv=None) -> int:
     )
 
     # Check 1: osv-scanner present (must return a recognizable version string)
+    scanner_path = target.get("scanner_path") or "osv-scanner"
     try:
-        version_output = runner.run(["osv-scanner", "--version"])
+        version_output = runner.run([scanner_path, "--version"])
     except SSHUnreachableError as e:
         print(f"  [FAIL] ssh unreachable: {e}", file=sys.stderr)
         return 2
