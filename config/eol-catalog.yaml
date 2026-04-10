@@ -1,0 +1,62 @@
+# EOL software detection catalog for pkgfence.
+# Fields: name, detect.file, detect.path_contains (optional),
+#   version_file, version_regex (optional), eol_before (null = defer to API)
+
+- name: Pydio
+  detect:
+    file: base.conf.php
+    path_contains: pydio
+  version_file: conf/VERSION
+  version_regex: null
+  eol_before: "9.0.0"
+
+- name: WordPress
+  detect:
+    file: wp-includes/version.php
+  version_file: wp-includes/version.php
+  version_regex: "\\$wp_version\\s*=\\s*'([^']+)'"
+  eol_before: null
+
+- name: Roundcube
+  detect:
+    file: program/include/iniset.php
+  version_file: program/include/iniset.php
+  version_regex: "define\\('RCUBE_VERSION',\\s*'([^']+)'\\)"
+  eol_before: null
+
+- name: phpMyAdmin
+  detect:
+    file: libraries/classes/Config.php
+    path_contains: phpmyadmin
+  version_file: libraries/classes/Version.php
+  version_regex: "VERSION\\s*=\\s*'([^']+)'"
+  eol_before: null
+
+- name: Joomla
+  detect:
+    file: libraries/src/Version.php
+  version_file: libraries/src/Version.php
+  version_regex: "RELEASE\\s*=\\s*'([^']+)'"
+  eol_before: null
+
+- name: Drupal
+  detect:
+    file: core/lib/Drupal.php
+  version_file: core/lib/Drupal.php
+  version_regex: "VERSION\\s*=\\s*'([^']+)'"
+  eol_before: null
+
+- name: MediaWiki
+  detect:
+    file: includes/Defines.php
+  version_file: includes/DefaultSettings.php
+  version_regex: "wgVersion\\s*=\\s*'([^']+)'"
+  eol_before: null
+
+- name: Nextcloud
+  detect:
+    file: version.php
+    path_contains: nextcloud
+  version_file: version.php
+  version_regex: "VersionString\\s*=\\s*'([^']+)'"
+  eol_before: null
