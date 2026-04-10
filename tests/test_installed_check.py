@@ -1,7 +1,12 @@
 import pytest
 from pathlib import Path
 from scripts.lib.types import new_finding
-from scripts.installed_check import check_installed_local, check_installed_remote
+from scripts.installed_check import (
+    check_installed_local,
+    check_installed_remote,
+    apply_installed_demotion,
+    apply_installed_checks_local,
+)
 from scripts.lib.ssh_runner import SSHRunner, SSHUnreachableError
 
 
@@ -94,3 +99,39 @@ def test_remote_pip_skipped(mocker):
     result = check_installed_remote(f, mock_runner)
     assert "installed" not in result
     mock_runner.run_with_rc.assert_not_called()
+
+
+def test_demotion_critical_not_installed():
+    f = new_finding(purl="pkg:npm/evil@1.0", vuln_id="MAL-123",
+                    severity="critical", manifest_path="/a/package-lock.json", target="local")
+    f["installed"] = False
+    result = apply_installed_demotion(f)
+    assert result["severity"] == "info"
+    assert result["original_severity"] == "critical"
+
+
+def test_demotion_high_not_installed():
+    f = new_finding(purl="pkg:npm/bad@1.0", vuln_id="GHSA-1",
+                    severity="high", manifest_path="/a/package-lock.json", target="local")
+    f["installed"] = False
+    result = apply_installed_demotion(f)
+    assert result["severity"] == "info"
+    assert result["original_severity"] == "high"
+
+
+def test_no_demotion_when_installed():
+    f = new_finding(purl="pkg:npm/vuln@1.0", vuln_id="GHSA-2",
+                    severity="critical", manifest_path="/a/package-lock.json", target="local")
+    f["installed"] = True
+    result = apply_installed_demotion(f)
+    assert result["severity"] == "critical"
+    assert "original_severity" not in result
+
+
+def test_no_demotion_medium_not_installed():
+    f = new_finding(purl="pkg:npm/meh@1.0", vuln_id="GHSA-3",
+                    severity="medium", manifest_path="/a/package-lock.json", target="local")
+    f["installed"] = False
+    result = apply_installed_demotion(f)
+    assert result["severity"] == "medium"
+    assert "original_severity" not in result

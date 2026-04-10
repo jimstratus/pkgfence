@@ -214,6 +214,10 @@ def run_scan(
     exclusions_cfg = _load_exclusions_config(DEFAULT_EXCLUSIONS_PATH)
     findings = apply_exclusions(findings, exclusions_cfg)
 
+    from scripts.installed_check import apply_installed_checks_local
+    local_manifest_paths = {m["path"] for m in manifests}
+    findings = apply_installed_checks_local(findings, local_manifest_paths)
+
     findings = sort_findings(findings)
 
     # Baseline diff

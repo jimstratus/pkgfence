@@ -37,6 +37,7 @@ def test_run_scan_end_to_end_with_npm_fixture(tmp_path, tmp_state):
         '"packages":{"":{"name":"v","version":"1.0.0"},'
         '"node_modules/lodash":{"version":"4.17.10"}}}'
     )
+    (proj / "node_modules" / "lodash").mkdir(parents=True)
 
     reg = tmp_path / "registry.yaml"
     _write_registry(reg, workspace)
@@ -151,6 +152,7 @@ def test_run_scan_with_adhoc_path(tmp_path, tmp_state):
     proj = workspace / "newproj"
     proj.mkdir()
     (proj / "package-lock.json").write_text("{}")
+    (proj / "node_modules" / "foo").mkdir(parents=True)
 
     fake_finding = new_finding(
         purl="pkg:npm/foo@1.0",

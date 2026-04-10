@@ -80,6 +80,38 @@ def check_installed_local(finding: Finding) -> Finding:
     return finding
 
 
+_DEMOTABLE_SEVERITIES = {"critical", "high"}
+
+
+def apply_installed_demotion(finding: Finding) -> Finding:
+    """Demote severity to info if finding's package is not installed.
+    Only demotes critical and high. Preserves original_severity."""
+    if finding.get("installed") is False and finding.get("severity") in _DEMOTABLE_SEVERITIES:
+        finding["original_severity"] = finding["severity"]
+        finding["severity"] = "info"
+    return finding
+
+
+def apply_installed_checks_local(
+    findings: list[Finding],
+    local_manifest_paths: set[str] | None = None,
+) -> list[Finding]:
+    """Run is-installed check + demotion on local findings.
+
+    If *local_manifest_paths* is provided, only findings whose manifest_path
+    is in that set are checked (skips remote SSH findings that share the same
+    pipeline but have paths on a different machine).
+    """
+    for f in findings:
+        if f.get("status") == "SCAN_ERROR":
+            continue
+        if local_manifest_paths is not None and f.get("manifest_path") not in local_manifest_paths:
+            continue
+        check_installed_local(f)
+        apply_installed_demotion(f)
+    return findings
+
+
 def check_installed_remote(finding: Finding, runner: SSHRunner) -> Finding:
     """Check whether the package in *finding* is installed on the remote host.
 
