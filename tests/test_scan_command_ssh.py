@@ -41,7 +41,14 @@ def test_run_scan_with_ssh_target_includes_remote_findings(tmp_path, tmp_state):
             return OSV_JSON
         raise AssertionError(f"unexpected command: {command}")
 
-    with patch("scripts.lib.ssh_runner.SSHRunner.run", new=fake_ssh_run):
+    def fake_ssh_run_with_rc(self, command):
+        # stat for is-installed check: simulate package is installed (rc=0)
+        if command[0] == "stat":
+            return ("", 0)
+        raise AssertionError(f"unexpected run_with_rc command: {command}")
+
+    with patch("scripts.lib.ssh_runner.SSHRunner.run", new=fake_ssh_run), \
+         patch("scripts.lib.ssh_runner.SSHRunner.run_with_rc", new=fake_ssh_run_with_rc):
         with patch("scripts.scan_command.KEVClient") as mock_kev_cls:
             mock_kev = MagicMock()
             mock_kev._known_set = set()

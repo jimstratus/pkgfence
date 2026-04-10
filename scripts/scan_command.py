@@ -39,6 +39,13 @@ from scripts.lib.registry import load_registry, RegistryError
 from scripts.lib.remote_types import RemoteManifest
 from scripts.lib.config import load_defaults, DefaultsError
 from scripts.lib.exceptions import load_exceptions
+from scripts.lib.types import Finding
+from scripts.eol_detect import detect_eol_local, detect_eol_remote
+from scripts.installed_check import (
+    apply_installed_checks_local,
+    check_installed_remote,
+    apply_installed_demotion,
+)
 from scripts.lib.audit_log import append_audit_record
 from scripts.lib.sarif import findings_to_sarif
 from scripts.lib.logger import get_logger
@@ -143,6 +150,11 @@ def run_scan(
     )
     log.info("L1 discovered %d manifests", len(manifests))
 
+    # EOL detection (local) — separate walk pass over the same roots
+    root_paths = [str(r.get("path", "")) for r in list(reg.get("roots") or [])]
+    eol_findings_local = detect_eol_local(root_paths)
+    log.info("L1 EOL detected %d local findings", len(eol_findings_local))
+
     # Layer 1b: Remote discovery via SSH targets
     # Tier filter mirrors the local tier_filter={1} passed to discover_manifests_full above.
     ssh_targets = list(reg.get("ssh") or [])
@@ -169,6 +181,19 @@ def run_scan(
     log.info("L1 remote discovered %d manifests across %d ssh targets",
              len(remote_manifests), len(filtered_ssh))
 
+    # EOL detection (remote) — one pass per SSH target
+    eol_findings_remote: list[Finding] = []
+    for target in filtered_ssh:
+        eol_findings_remote.extend(
+            detect_eol_remote(
+                discover_paths=target.get("discover_paths", []),
+                runner=target_runners[target["name"]],
+                target_name=target["name"],
+                target_host=target["host"],
+            )
+        )
+    log.info("L1 EOL detected %d remote findings", len(eol_findings_remote))
+
     # Layer 2: Scanner orchestration
     log.info("L2 scanner orchestration starting")
     findings = scan_all_manifests(manifests)
@@ -188,6 +213,20 @@ def run_scan(
             )
         )
     log.info("L2 total findings (local + remote): %d", len(findings))
+
+    # Remote is-installed checks (per SSH target)
+    for target in filtered_ssh:
+        target_findings = [
+            f for f in findings
+            if f.get("target") == target["name"] and f.get("status") != "SCAN_ERROR"
+        ]
+        for f in target_findings:
+            check_installed_remote(f, target_runners[target["name"]])
+            apply_installed_demotion(f)
+
+    # Merge EOL findings before L3 so they flow through enrichment + triage
+    findings.extend(eol_findings_local)
+    findings.extend(eol_findings_remote)
 
     # Layer 3: Threat enrichment
     log.info("L3 threat enrichment starting")
@@ -214,7 +253,6 @@ def run_scan(
     exclusions_cfg = _load_exclusions_config(DEFAULT_EXCLUSIONS_PATH)
     findings = apply_exclusions(findings, exclusions_cfg)
 
-    from scripts.installed_check import apply_installed_checks_local
     local_manifest_paths = {m["path"] for m in manifests}
     findings = apply_installed_checks_local(findings, local_manifest_paths)
 
