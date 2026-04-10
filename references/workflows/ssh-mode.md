@@ -100,8 +100,17 @@ access to the discover paths without sudo:
 ```bash
 # Example for Plesk mars/bespin — grant scanuser read access to /var/www
 sudo setfacl -R -m u:scanuser:rX /var/www
-sudo setfacl -R -d -m u:scanuser:rX /var/www  # default ACL for new files
+sudo setfacl -R -d -m u:scanuser:rX,mask::rwx /var/www  # default ACL for new files
 ```
+
+**WARNING — the `mask::rwx` in the default ACL is load-bearing.**
+Without it, adding a default user entry recomputes the directory's
+default mask to `r-x`, which caps the effective permissions of the
+owning group on any file subsequently created in that directory. On
+Plesk hosts this silently strips write from the `psaserv` group on
+PHP-FPM sockets, breaking every website on the host. The explicit
+`mask::rwx` preserves the original group permissions. (Discovered
+2026-04-10 on bespin — 100 sockets broken; mars was a time bomb.)
 
 Registry entry:
 

@@ -70,6 +70,8 @@ If any safety test fails, the tool is broken and must NOT be used.
 
 **SSH agent fanout:** Always use `-o IdentitiesOnly=yes` when specifying `-i <keyfile>`, otherwise ssh-agent sends all keys first and hits MaxAuthTries.
 
+**POSIX ACL mask trap on Plesk hosts:** When setting default ACLs for scanner read access, ALWAYS include `mask::rwx` — e.g., `setfacl -R -d -m u:scanuser:rX,mask::rwx /var/www`. Without it, the default mask recomputes to `r-x`, stripping group write from PHP-FPM sockets and breaking all websites. See `references/workflows/ssh-mode.md` Pattern A1.
+
 **Remote shell escaping:** Arguments in SSH commands go through the remote shell. Use `shlex.quote()` for any user-controlled values. Use `"\\("` / `"\\)"` for find's grouping operators.
 
 **YAML round-trip:** Use `YAML(typ="rt")` when dict insertion order matters (frontmatter, registry). Never use `typ="safe"` — it sorts keys alphabetically.
