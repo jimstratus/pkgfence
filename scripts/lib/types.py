@@ -32,6 +32,8 @@ class Finding(TypedDict, total=False):
         actively_exploited  — bool, true if cveID appears in CISA KEV
         epss_score          — float [0, 1], probability of exploitation
         epss_percentile     — float [0, 1], percentile rank in EPSS
+        cvss_score          — raw CVSS base score from osv-scanner output
+        priority_score      — 0.0-1.0 triple-score (CVSS + EPSS + KEV)
         kev_date_added      — ISO date when KEV added the CVE
         direct              — bool, true if this is a direct dep (not transitive)
         diff_status         — NEW | CHANGED | EXISTING (from baseline comparison)
@@ -53,6 +55,8 @@ class Finding(TypedDict, total=False):
     actively_exploited: bool
     epss_score: float
     epss_percentile: float
+    cvss_score: float
+    priority_score: float
     kev_date_added: str
     direct: bool
     diff_status: DiffStatus

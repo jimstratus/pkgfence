@@ -12,6 +12,15 @@ def test_finding_accepts_installed_and_original_severity():
     assert f["original_severity"] == "high"
 
 
+def test_finding_accepts_cvss_and_priority_fields():
+    f = new_finding(purl="pkg:npm/foo@1.0", vuln_id="CVE-2024-1",
+                    severity="critical", manifest_path="/a", target="local")
+    f["cvss_score"] = 9.8
+    f["priority_score"] = 0.92
+    assert f["cvss_score"] == 9.8
+    assert f["priority_score"] == 0.92
+
+
 def test_new_finding_has_all_required_fields():
     f = new_finding(
         purl="pkg:npm/lodash@4.17.20",
