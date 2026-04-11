@@ -105,7 +105,7 @@ def test_osv_scanner_exit_code_128_is_empty_lockfile():
             run_osv_scanner_lockfile("/tmp/fake/package-lock.json")
 
 
-from scripts.scan_local import parse_osv_output
+from scripts.scan_local import parse_osv_output, _extract_cvss_score
 
 
 def test_parse_osv_output_extracts_findings():
@@ -267,3 +267,26 @@ def test_scan_all_manifests_continues_on_one_bad_target():
     bad_findings = [f for f in all_findings if f["target"] == "bad"]
     assert len(bad_findings) == 1
     assert bad_findings[0]["status"] == "SCAN_ERROR"
+
+
+def test_extract_cvss_score_numeric_string():
+    sev = [{"type": "CVSS_V3", "score": "9.8"}]
+    assert _extract_cvss_score(sev) == 9.8
+
+
+def test_extract_cvss_score_from_vector():
+    sev = [{"type": "CVSS_V3", "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H 9.8"}]
+    # Spec version 3.1 is in valid range, but 9.8 is larger — max wins
+    assert _extract_cvss_score(sev) == 9.8
+
+
+def test_extract_cvss_score_returns_none_when_absent():
+    assert _extract_cvss_score([]) is None
+    assert _extract_cvss_score([{"type": "OTHER", "score": "9.8"}]) is None
+
+
+def test_parse_osv_output_sets_cvss_score():
+    raw = '{"results":[{"source":{"path":"/a","type":"lockfile"},"packages":[{"package":{"name":"lodash","version":"4.17.21","ecosystem":"npm"},"vulnerabilities":[{"id":"CVE-2024-1","summary":"test","severity":[{"type":"CVSS_V3","score":"9.8"}],"aliases":[]}]}]}]}'
+    findings = parse_osv_output(raw, "/a/package-lock.json", "local")
+    assert len(findings) == 1
+    assert findings[0].get("cvss_score") == 9.8

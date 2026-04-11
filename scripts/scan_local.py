@@ -158,6 +158,28 @@ def _extract_severity(vuln_severity_list: list[dict]) -> str:
     return "medium"
 
 
+def _extract_cvss_score(severity_array: list[dict]) -> float | None:
+    """Extract numeric CVSS base score from osv-scanner severity array.
+
+    Returns the largest valid score (0.0-10.0) found in any CVSS_V* entry.
+    The CVSS vector string can contain both '3.1' (spec version) and the
+    base score (e.g., '9.8') — taking the max correctly handles both
+    'CVSS:3.1/.../C:H/I:H/A:H 9.8' and a bare '9.8'.
+    """
+    for entry in severity_array:
+        if not entry.get("type", "").startswith("CVSS_V"):
+            continue
+        score_str = entry.get("score", "")
+        candidates = [
+            float(m.group(0))
+            for m in re.finditer(r"\b\d+\.\d+\b", score_str)
+        ]
+        valid = [c for c in candidates if 0.0 <= c <= 10.0]
+        if valid:
+            return max(valid)
+    return None
+
+
 def parse_osv_output(raw_json: str, manifest_path: str, target: str) -> list[Finding]:
     """Parse osv-scanner JSON output into normalized Finding records.
 
@@ -197,6 +219,7 @@ def parse_osv_output(raw_json: str, manifest_path: str, target: str) -> list[Fin
             for vuln in pkg_entry.get("vulnerabilities", []):
                 vuln_id = vuln.get("id", "UNKNOWN")
                 severity = _extract_severity(vuln.get("severity", []))
+                cvss_score = _extract_cvss_score(vuln.get("severity", []))
                 f = new_finding(
                     purl=purl,
                     vuln_id=vuln_id,
@@ -207,6 +230,8 @@ def parse_osv_output(raw_json: str, manifest_path: str, target: str) -> list[Fin
                     aliases=vuln.get("aliases", []),
                     scanner_source="osv-scanner",
                 )
+                if cvss_score is not None:
+                    f["cvss_score"] = cvss_score
                 findings.append(f)
     return findings
 
