@@ -13,7 +13,8 @@
       "name": "Webhook Trigger",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [240, 300]
+      "position": [240, 300],
+      "webhookId": "daef2bb1-5254-443e-8485-8a1c80afc88d"
     },
     {
       "parameters": {
