@@ -25,6 +25,9 @@ from scripts.discover_remote import discover_remote_safely
 from scripts.scan_remote import scan_remote_manifests
 from scripts.lib.ssh_runner import SSHRunner
 from scripts.enrich_threats import enrich_with_kev
+from scripts.lib.epss_client import EPSSClient
+from scripts.enrich_epss import enrich_with_epss
+from scripts.lib.priority import compute_priority_score
 from scripts.triage import (
     dedup_findings,
     apply_mal_override,
@@ -241,6 +244,23 @@ def run_scan(
         degraded_modes.append("CISA KEV feed degraded — exploit-status not enriched")
     findings = enrich_with_kev(findings, kev)
 
+    # Layer 3.5: EPSS enrichment
+    epss = EPSSClient(cache_dir=state_dir / "cache" / "epss")
+    try:
+        epss.refresh()
+    except Exception as e:  # noqa: BLE001
+        log.warning("EPSS refresh failed: %s", e)
+        degraded_modes.append(f"EPSS unreachable: {e}")
+    if getattr(epss, "is_degraded", False) and not any(
+        "EPSS" in m for m in degraded_modes
+    ):
+        degraded_modes.append("EPSS feed degraded — exploit-probability not enriched")
+    findings = enrich_with_epss(findings, epss)
+
+    # Compute priority_score on every finding (after all enrichment, before triage)
+    for f in findings:
+        f["priority_score"] = compute_priority_score(f)
+
     # Layer 4: Triage
     log.info("L4 triage starting")
     findings = dedup_findings(findings)
@@ -293,6 +313,7 @@ def run_scan(
     snapshot = {
         "scanner_version": detect_scanner("osv-scanner") or "osv-api-fallback",
         "kev_timestamp": snapshot_timestamp,
+        "epss_feed_timestamp": epss.feed_timestamp,
         "targets_scanned": len(manifests) + len(remote_manifests),
         "packages_checked": len(findings),  # rough proxy
         "run_id": run_id,

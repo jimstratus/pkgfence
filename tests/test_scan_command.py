@@ -62,12 +62,19 @@ def test_run_scan_end_to_end_with_npm_fixture(tmp_path, tmp_state):
             mock_kev.is_known_exploited.return_value = False
             mock_kev.refresh = MagicMock()
             mock_kev_cls.return_value = mock_kev
+            with patch("scripts.scan_command.EPSSClient") as mock_epss_cls:
+                mock_epss = MagicMock()
+                mock_epss.is_degraded = False
+                mock_epss.feed_timestamp = None
+                mock_epss.refresh = MagicMock()
+                mock_epss.lookup.return_value = None
+                mock_epss_cls.return_value = mock_epss
 
-            exit_code, report_path = run_scan(
-                registry_path=reg,
-                state_dir=tmp_state,
-                fail_on="high",
-            )
+                exit_code, report_path = run_scan(
+                    registry_path=reg,
+                    state_dir=tmp_state,
+                    fail_on="high",
+                )
 
     assert exit_code == 1
     assert report_path.exists()
@@ -93,7 +100,14 @@ def test_run_scan_clean_exit_zero(tmp_path, tmp_state):
             mock_kev.is_degraded = False
             mock_kev.refresh = MagicMock()
             mock_kev_cls.return_value = mock_kev
-            exit_code, report_path = run_scan(registry_path=reg, state_dir=tmp_state)
+            with patch("scripts.scan_command.EPSSClient") as mock_epss_cls:
+                mock_epss = MagicMock()
+                mock_epss.is_degraded = False
+                mock_epss.feed_timestamp = None
+                mock_epss.refresh = MagicMock()
+                mock_epss.lookup.return_value = None
+                mock_epss_cls.return_value = mock_epss
+                exit_code, report_path = run_scan(registry_path=reg, state_dir=tmp_state)
 
     assert exit_code == 0
     assert report_path.exists()
@@ -135,11 +149,18 @@ def test_exit_code_1_when_high_finding_with_default_fail_on_critical(tmp_path, t
             mock_kev.is_known_exploited.return_value = False
             mock_kev.refresh = MagicMock()
             mock_kev_cls.return_value = mock_kev
+            with patch("scripts.scan_command.EPSSClient") as mock_epss_cls:
+                mock_epss = MagicMock()
+                mock_epss.is_degraded = False
+                mock_epss.feed_timestamp = None
+                mock_epss.refresh = MagicMock()
+                mock_epss.lookup.return_value = None
+                mock_epss_cls.return_value = mock_epss
 
-            # fail_on=critical -> high finding does not trigger exit 1
-            exit0, _ = run_scan(registry_path=reg, state_dir=tmp_state, fail_on="critical")
-            # fail_on=high -> high finding does trigger exit 1
-            exit1, _ = run_scan(registry_path=reg, state_dir=tmp_state, fail_on="high")
+                # fail_on=critical -> high finding does not trigger exit 1
+                exit0, _ = run_scan(registry_path=reg, state_dir=tmp_state, fail_on="critical")
+                # fail_on=high -> high finding does trigger exit 1
+                exit1, _ = run_scan(registry_path=reg, state_dir=tmp_state, fail_on="high")
 
     assert exit0 == 0
     assert exit1 == 1
@@ -171,14 +192,21 @@ def test_run_scan_with_adhoc_path(tmp_path, tmp_state):
             mock_kev.is_known_exploited.return_value = False
             mock_kev.refresh = MagicMock()
             mock_kev_cls.return_value = mock_kev
+            with patch("scripts.scan_command.EPSSClient") as mock_epss_cls:
+                mock_epss = MagicMock()
+                mock_epss.is_degraded = False
+                mock_epss.feed_timestamp = None
+                mock_epss.refresh = MagicMock()
+                mock_epss.lookup.return_value = None
+                mock_epss_cls.return_value = mock_epss
 
-            # No registry path passed; adhoc_path provided
-            exit_code, report_path = run_scan(
-                registry_path=Path("does-not-exist.yaml"),
-                state_dir=tmp_state,
-                adhoc_path=workspace,
-                fail_on="high",
-            )
+                # No registry path passed; adhoc_path provided
+                exit_code, report_path = run_scan(
+                    registry_path=Path("does-not-exist.yaml"),
+                    state_dir=tmp_state,
+                    adhoc_path=workspace,
+                    fail_on="high",
+                )
 
     assert exit_code == 1
     assert report_path.exists()

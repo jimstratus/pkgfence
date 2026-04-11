@@ -57,12 +57,19 @@ def test_run_scan_with_ssh_target_includes_remote_findings(tmp_path, tmp_state):
             mock_kev.is_known_exploited.return_value = False
             mock_kev.refresh = MagicMock()
             mock_kev_cls.return_value = mock_kev
+            with patch("scripts.scan_command.EPSSClient") as mock_epss_cls:
+                mock_epss = MagicMock()
+                mock_epss.is_degraded = False
+                mock_epss.feed_timestamp = None
+                mock_epss.refresh = MagicMock()
+                mock_epss.lookup.return_value = None
+                mock_epss_cls.return_value = mock_epss
 
-            exit_code, report_path = run_scan(
-                registry_path=reg,
-                state_dir=tmp_state,
-                fail_on="high",
-            )
+                exit_code, report_path = run_scan(
+                    registry_path=reg,
+                    state_dir=tmp_state,
+                    fail_on="high",
+                )
 
     assert exit_code == 1
     report_text = report_path.read_text(encoding="utf-8")
@@ -109,11 +116,18 @@ def test_run_scan_with_unreachable_ssh_target_exit_1_not_2(tmp_path, tmp_state):
             mock_kev.is_degraded = False
             mock_kev.refresh = MagicMock()
             mock_kev_cls.return_value = mock_kev
-            exit_code, report_path = run_scan(
-                registry_path=reg,
-                state_dir=tmp_state,
-                fail_on="critical",
-            )
+            with patch("scripts.scan_command.EPSSClient") as mock_epss_cls:
+                mock_epss = MagicMock()
+                mock_epss.is_degraded = False
+                mock_epss.feed_timestamp = None
+                mock_epss.refresh = MagicMock()
+                mock_epss.lookup.return_value = None
+                mock_epss_cls.return_value = mock_epss
+                exit_code, report_path = run_scan(
+                    registry_path=reg,
+                    state_dir=tmp_state,
+                    fail_on="critical",
+                )
 
     # SCAN_ERROR findings have severity=info, so they don't trip fail-on=critical
     assert exit_code == 0
@@ -184,12 +198,19 @@ def test_run_scan_with_two_ssh_targets_aggregates_findings(tmp_path, tmp_state):
             mock_kev.is_known_exploited.return_value = False
             mock_kev.refresh = MagicMock()
             mock_kev_cls.return_value = mock_kev
+            with patch("scripts.scan_command.EPSSClient") as mock_epss_cls:
+                mock_epss = MagicMock()
+                mock_epss.is_degraded = False
+                mock_epss.feed_timestamp = None
+                mock_epss.refresh = MagicMock()
+                mock_epss.lookup.return_value = None
+                mock_epss_cls.return_value = mock_epss
 
-            exit_code, report_path = run_scan(
-                registry_path=reg,
-                state_dir=tmp_state,
-                fail_on="high",
-            )
+                exit_code, report_path = run_scan(
+                    registry_path=reg,
+                    state_dir=tmp_state,
+                    fail_on="high",
+                )
 
     assert exit_code == 1
     report_text = report_path.read_text(encoding="utf-8")
@@ -229,12 +250,19 @@ def test_run_scan_skips_tier2_ssh_targets_by_default(tmp_path, tmp_state):
             mock_kev.is_degraded = False
             mock_kev.refresh = MagicMock()
             mock_kev_cls.return_value = mock_kev
+            with patch("scripts.scan_command.EPSSClient") as mock_epss_cls:
+                mock_epss = MagicMock()
+                mock_epss.is_degraded = False
+                mock_epss.feed_timestamp = None
+                mock_epss.refresh = MagicMock()
+                mock_epss.lookup.return_value = None
+                mock_epss_cls.return_value = mock_epss
 
-            exit_code, report_path = run_scan(
-                registry_path=reg,
-                state_dir=tmp_state,
-                fail_on="critical",
-            )
+                exit_code, report_path = run_scan(
+                    registry_path=reg,
+                    state_dir=tmp_state,
+                    fail_on="critical",
+                )
 
     assert exit_code == 0
     # Target name should NOT appear in findings-related sections of the report
@@ -276,13 +304,20 @@ def test_run_scan_with_adhoc_path_skips_ssh_targets(tmp_path, tmp_state):
             mock_kev.is_degraded = False
             mock_kev.refresh = MagicMock()
             mock_kev_cls.return_value = mock_kev
+            with patch("scripts.scan_command.EPSSClient") as mock_epss_cls:
+                mock_epss = MagicMock()
+                mock_epss.is_degraded = False
+                mock_epss.feed_timestamp = None
+                mock_epss.refresh = MagicMock()
+                mock_epss.lookup.return_value = None
+                mock_epss_cls.return_value = mock_epss
 
-            exit_code, report_path = run_scan(
-                registry_path=reg,
-                state_dir=tmp_state,
-                adhoc_path=adhoc,
-                fail_on="critical",
-            )
+                exit_code, report_path = run_scan(
+                    registry_path=reg,
+                    state_dir=tmp_state,
+                    adhoc_path=adhoc,
+                    fail_on="critical",
+                )
 
     assert exit_code == 0
 
@@ -314,12 +349,19 @@ def test_run_scan_invokes_publish_when_sinks_configured(tmp_path, tmp_state):
             mock_kev.is_known_exploited.return_value = False
             mock_kev.refresh = MagicMock()
             mock_kev_cls.return_value = mock_kev
+            with patch("scripts.scan_command.EPSSClient") as mock_epss_cls:
+                mock_epss = MagicMock()
+                mock_epss.is_degraded = False
+                mock_epss.feed_timestamp = None
+                mock_epss.refresh = MagicMock()
+                mock_epss.lookup.return_value = None
+                mock_epss_cls.return_value = mock_epss
 
-            exit_code, report_path = run_scan(
-                registry_path=reg,
-                state_dir=tmp_state,
-                fail_on="critical",
-            )
+                exit_code, report_path = run_scan(
+                    registry_path=reg,
+                    state_dir=tmp_state,
+                    fail_on="critical",
+                )
 
     assert exit_code == 0
     # publish_run was called once with the configured sinks
@@ -357,12 +399,19 @@ def test_run_scan_publish_failures_do_not_change_exit_code(tmp_path, tmp_state):
             mock_kev.is_degraded = False
             mock_kev.refresh = MagicMock()
             mock_kev_cls.return_value = mock_kev
+            with patch("scripts.scan_command.EPSSClient") as mock_epss_cls:
+                mock_epss = MagicMock()
+                mock_epss.is_degraded = False
+                mock_epss.feed_timestamp = None
+                mock_epss.refresh = MagicMock()
+                mock_epss.lookup.return_value = None
+                mock_epss_cls.return_value = mock_epss
 
-            exit_code, _ = run_scan(
-                registry_path=reg,
-                state_dir=tmp_state,
-                fail_on="critical",
-            )
+                exit_code, _ = run_scan(
+                    registry_path=reg,
+                    state_dir=tmp_state,
+                    fail_on="critical",
+                )
 
     # Even with publish failures, exit code stays 0 (clean local scan)
     assert exit_code == 0
