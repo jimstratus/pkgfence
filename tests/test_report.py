@@ -309,6 +309,51 @@ def test_report_no_demotion_note_when_not_demoted():
     assert "not installed" not in report.lower()
 
 
+def test_report_shows_priority_line():
+    f = new_finding(purl="pkg:npm/x@1", vuln_id="CVE-2024-1",
+                    severity="critical", manifest_path="/a", target="local")
+    f["cvss_score"] = 9.5
+    f["epss_score"] = 0.78
+    f["epss_percentile"] = 0.99
+    f["actively_exploited"] = True
+    f["priority_score"] = 0.95
+    report = render_markdown_report([f], {"scanner_version": "2.3.3"}, [])
+    assert "Priority" in report
+    assert "0.95" in report
+    assert "0.78" in report  # EPSS in component breakdown
+    assert "p99" in report  # percentile display
+
+
+def test_report_priority_line_with_no_epss():
+    f = new_finding(purl="pkg:npm/x@1", vuln_id="CVE-2024-2",
+                    severity="high", manifest_path="/a", target="local")
+    f["cvss_score"] = 8.0
+    f["priority_score"] = 0.32
+    report = render_markdown_report([f], {"scanner_version": "2.3.3"}, [])
+    assert "Priority" in report
+    assert "EPSS=0.00" in report
+    assert "KEV=false" in report
+
+
+def test_report_no_priority_line_when_score_absent():
+    """Findings without priority_score don't get a priority line."""
+    f = new_finding(purl="pkg:npm/x@1", vuln_id="GHSA-1",
+                    severity="medium", manifest_path="/a", target="local")
+    # No priority_score set
+    report = render_markdown_report([f], {"scanner_version": "2.3.3"}, [])
+    assert "Priority:" not in report or "**Priority:**" not in report
+
+
+def test_frontmatter_includes_epss_feed_timestamp():
+    snapshot = {
+        "scanner_version": "2.3.3",
+        "epss_feed_timestamp": "2026-04-11T00:00:00+00:00",
+    }
+    report = render_markdown_report([], snapshot, [])
+    assert "epss_feed_timestamp" in report
+    assert "2026-04-11" in report
+
+
 def test_frontmatter_severity_keys_in_severity_rank_order():
     """findings_by_severity should appear in severity-rank order
     (critical, high, medium, low, info, other) — NOT alphabetical —

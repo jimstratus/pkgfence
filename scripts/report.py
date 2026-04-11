@@ -51,6 +51,7 @@ def _build_frontmatter(
         "degraded_modes": [str(m) for m in degraded_modes],
         "ssh_targets": [str(t) for t in snapshot.get("ssh_targets", [])],
         "local_roots": [str(r) for r in snapshot.get("local_roots", [])],
+        "epss_feed_timestamp": snapshot.get("epss_feed_timestamp"),
     }
 
     yaml = YAML(typ="rt")
@@ -140,6 +141,20 @@ def _render_finding_card(f: Finding) -> str:
         lines.append(f"- **Description:** {f['description']}")
     if f.get("remediation"):
         lines.append(f"- **Remediation:** {f['remediation']}")
+    priority = f.get("priority_score")
+    if priority is not None:
+        cvss = f.get("cvss_score")
+        epss = f.get("epss_score") or 0.0
+        epss_pct = f.get("epss_percentile") or 0.0
+        kev = "true" if f.get("actively_exploited") else "false"
+        cvss_part = f"CVSS={cvss/10.0:.2f}" if cvss is not None else "CVSS=fallback"
+        if epss > 0:
+            epss_part = f"EPSS={epss:.2f} (p{epss_pct*100:.0f})"
+        else:
+            epss_part = "EPSS=0.00"
+        lines.append(
+            f"- **Priority:** {priority:.2f} ({cvss_part}, {epss_part}, KEV={kev})"
+        )
     if f.get("status") == "SCAN_ERROR":
         lines.append("- **\u26a0\ufe0f Scanner error \u2014 target not actually scanned**")
     return "\n".join(lines) + "\n"
