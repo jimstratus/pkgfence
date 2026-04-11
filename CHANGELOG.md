@@ -1,5 +1,31 @@
 # Changelog
 
+## v0.3.0 — Phase 3a: EPSS + Triple-Score Ranking (2026-04-11)
+
+### New features
+- **EPSS enrichment** — daily download of FIRST.org's Exploit Prediction Scoring System CSV (~10 MB). Each finding with a CVE alias gets `epss_score` and `epss_percentile` (probability and percentile rank of exploitation in the wild within 30 days). Mirrors KEVClient pattern: 24h TTL, single-file overwrite-in-place cache, in-memory dict lookup.
+- **Triple-score ranking** — `priority_score = 0.4*CVSS + 0.3*EPSS + 0.3*KEV` combines all three signals into a 0.0-1.0 priority score. Falls back to severity midpoints when raw CVSS is unavailable.
+- **Hierarchical sort** — within each severity bucket, findings are now ordered by `priority_score` descending. High-EPSS-and-KEV criticals appear first in the critical section, surfacing the actual "fix this first" answer.
+- **CVSS extraction** — raw CVSS base scores are now extracted from osv-scanner output (was previously discarded after severity bucketing). Handles both bare numeric scores and full CVSS vector strings.
+- **Report Priority line** — finding cards now show `Priority: 0.95 (CVSS=0.95, EPSS=0.78 (p99), KEV=true)` for full transparency on score derivation.
+- **`epss_feed_timestamp`** in report frontmatter for downstream feed-freshness verification.
+
+### Architecture
+- New L3.5 enrichment stage between L3 (KEV) and L4 (triage)
+- New `EPSSClient` (`scripts/lib/epss_client.py`) mirrors the `KEVClient` pattern
+- New `scripts/lib/priority.py` module isolates the scoring formula (avoids import cycles between triage, report, and enrichment)
+- New `scripts/enrich_epss.py` module for L3.5 stage
+
+### Phase 3 sub-projects
+This is sub-project 3a of Phase 3 (Triage + Intelligence). Remaining sub-projects:
+- 3b: GHSA enrichment
+- 3c: Behavioral heuristics (age, lifecycle scripts, provenance, entropy)
+- 3d: deps.dev + Scorecard
+- 3e: Lookup mode (`pkgfence lookup CVE-*`)
+
+### Tests
+- 270 → 270 tests passing (Phase 3a added ~32 new tests across 3 new test files)
+
 ## v0.2.5 — Phase 2.5: Trustworthy Signal (2026-04-10)
 
 ### New features
