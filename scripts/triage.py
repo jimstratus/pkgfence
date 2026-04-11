@@ -85,10 +85,12 @@ SEVERITY_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
 
 def sort_findings(findings: list[Finding]) -> list[Finding]:
     """Sort findings deterministically: severity first (critical → info),
+    then by priority_score descending within each severity bucket,
     then alphabetically by purl, then by vuln_id."""
     def key(f: Finding):
         return (
             SEVERITY_RANK.get(f.get("severity", "medium"), 99),
+            -float(f.get("priority_score") or 0.0),  # negative for descending
             f.get("purl", ""),
             f.get("vuln_id", ""),
         )

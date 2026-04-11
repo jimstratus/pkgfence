@@ -1,6 +1,6 @@
 """Tests for the triage layer."""
 from scripts.lib.types import new_finding
-from scripts.triage import dedup_findings
+from scripts.triage import dedup_findings, sort_findings
 
 
 def test_dedup_same_purl_same_vuln():
@@ -122,8 +122,6 @@ def test_triage_expired_exceptions_dont_filter():
 def test_sort_findings_severity_then_alphabetical():
     """Sort by severity (critical > high > medium > low > info), then
     alphabetically by purl. Deterministic: same input → same order."""
-    from scripts.triage import sort_findings
-
     findings = [
         new_finding(purl="pkg:npm/zzz@1.0", vuln_id="A", severity="medium",
                     manifest_path="/tmp/a", target="t"),
@@ -167,3 +165,49 @@ def test_apply_exclusions_keeps_scan_error_records():
     config = {"exclude_severities_below": "low", "exclude_categories": []}
     result = apply_exclusions(findings, config)
     assert len(result) == 1  # SCAN_ERROR survives
+
+
+def test_sort_findings_uses_priority_score_within_severity():
+    """Within the same severity bucket, higher priority_score sorts first."""
+    a = new_finding(purl="pkg:npm/a@1", vuln_id="CVE-1",
+                    severity="critical", manifest_path="/a", target="local")
+    a["priority_score"] = 0.50
+    b = new_finding(purl="pkg:npm/b@1", vuln_id="CVE-2",
+                    severity="critical", manifest_path="/a", target="local")
+    b["priority_score"] = 0.95
+    c = new_finding(purl="pkg:npm/c@1", vuln_id="CVE-3",
+                    severity="high", manifest_path="/a", target="local")
+    c["priority_score"] = 0.99
+
+    result = sort_findings([a, b, c])
+    # Critical bucket first; within it, b (0.95) before a (0.50)
+    assert result[0]["vuln_id"] == "CVE-2"  # b
+    assert result[1]["vuln_id"] == "CVE-1"  # a
+    assert result[2]["vuln_id"] == "CVE-3"  # c (high, after both criticals)
+
+
+def test_sort_findings_purl_tiebreaker_when_priority_equal():
+    """When severity AND priority_score are equal, sort by purl."""
+    a = new_finding(purl="pkg:npm/zebra@1", vuln_id="CVE-1",
+                    severity="critical", manifest_path="/a", target="local")
+    a["priority_score"] = 0.80
+    b = new_finding(purl="pkg:npm/alpha@1", vuln_id="CVE-2",
+                    severity="critical", manifest_path="/a", target="local")
+    b["priority_score"] = 0.80
+    result = sort_findings([a, b])
+    # Same severity, same priority — alphabetical purl tiebreaker
+    assert result[0]["purl"] == "pkg:npm/alpha@1"
+    assert result[1]["purl"] == "pkg:npm/zebra@1"
+
+
+def test_sort_findings_no_priority_score_treated_as_zero():
+    """Findings without priority_score are sorted as if priority=0."""
+    a = new_finding(purl="pkg:npm/a@1", vuln_id="CVE-1",
+                    severity="critical", manifest_path="/a", target="local")
+    a["priority_score"] = 0.5
+    b = new_finding(purl="pkg:npm/b@1", vuln_id="CVE-2",
+                    severity="critical", manifest_path="/a", target="local")
+    # No priority_score on b — treated as 0.0
+    result = sort_findings([a, b])
+    assert result[0]["vuln_id"] == "CVE-1"  # a (0.5) before b (0.0)
+    assert result[1]["vuln_id"] == "CVE-2"
