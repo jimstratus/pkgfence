@@ -196,6 +196,24 @@ Two real incidents drove this skill into existence:
 
 Phase 2 SSH support closed the loop on the second class. During tier-1 dogfood, pkgfence caught a real malicious package (`MAL-2023-462 fsevents@1.2.4`) on a Plesk host's legacy Pydio installation.
 
+## Documentation
+
+| Document | Description | Audience |
+|----------|-------------|----------|
+| [README.md](README.md) | Project overview, architecture, quick start | User, Developer |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute: bugs, enhancements, PR process, safety invariants | Developer |
+| [DEVELOPMENT.md](DEVELOPMENT.md) | Developer environment setup, testing, conventions, troubleshooting | Developer |
+| [SKILL.md](SKILL.md) | Claude Code skill definition for invoking pkgfence from other projects | AI |
+| [CHANGELOG.md](CHANGELOG.md) | Release history (v0.1.0 through current) | User, Developer |
+| [AGENTS.md](AGENTS.md) | AI agent navigation and conventions across all modules | AI |
+| [config/registry.schema.yaml](config/registry.schema.yaml) | Registry YAML JSON Schema | Developer |
+| [config/registry.example.yaml](config/registry.example.yaml) | Example registry configuration | User |
+| [references/workflows/scan-mode.md](references/workflows/scan-mode.md) | Local scan workflow details | User, Developer |
+| [references/workflows/ssh-mode.md](references/workflows/ssh-mode.md) | SSH mode workflow (ACL, sudo, publish setup) | User, Developer |
+| [references/scanners/osv-scanner.md](references/scanners/osv-scanner.md) | osv-scanner integration reference | Developer |
+| [references/threat-intel/](references/threat-intel/) | CISA KEV and OSV API threat intelligence docs | Developer |
+| [planning/plan.md](planning/plan.md) | Full roadmap (Phases 1-5) | Developer |
+
 ## Development
 
 - **Test suite**: `python -m pytest -v` (179 tests, all passing)
