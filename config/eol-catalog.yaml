@@ -2,27 +2,23 @@
 # Fields: name, detect.file, detect.path_contains (optional),
 #   version_file, version_regex (optional), eol_before (null = defer to API)
 
-- name: Pydio
-  detect:
-    file: base.conf.php
-    path_contains: pydio
-  version_file: conf/VERSION
-  version_regex: null
-  eol_before: "9.0.0"
+# EOL thresholds derived from endoflife.date API (2026-05-31).
+# eol_before: installed version <= this value is considered EOL.
+# null = defer to KEV/threat-intel lookup only (no hard EOL flag).
 
 - name: WordPress
   detect:
     file: wp-includes/version.php
   version_file: wp-includes/version.php
   version_regex: "\\$wp_version\\s*=\\s*'([^']+)'"
-  eol_before: null
+  eol_before: "6.8"   # 6.9 EOL 2026-05-20, 6.8 EOL 2025-12-02; flag 6.8 and older
 
 - name: Roundcube
   detect:
     file: program/include/iniset.php
   version_file: program/include/iniset.php
   version_regex: "define\\('RCUBE_VERSION',\\s*'([^']+)'\\)"
-  eol_before: null
+  eol_before: null     # 1.7.x currently supported; flag via KEV for older
 
 - name: phpMyAdmin
   detect:
@@ -30,28 +26,28 @@
     path_contains: phpmyadmin
   version_file: libraries/classes/Version.php
   version_regex: "VERSION\\s*=\\s*'([^']+)'"
-  eol_before: null
+  eol_before: null     # 5.2.x supported; flag via KEV for older
 
 - name: Joomla
   detect:
     file: libraries/src/Version.php
   version_file: libraries/src/Version.php
   version_regex: "RELEASE\\s*=\\s*'([^']+)'"
-  eol_before: null
+  eol_before: null     # 6.x supported through 2029; flag via KEV for older
 
 - name: Drupal
   detect:
     file: core/lib/Drupal.php
   version_file: core/lib/Drupal.php
   version_regex: "VERSION\\s*=\\s*'([^']+)'"
-  eol_before: null
+  eol_before: "10.4"   # 11.x current, 10.x LTS EOL 2026-12-16; flag 10.4 and older
 
 - name: MediaWiki
   detect:
     file: includes/Defines.php
   version_file: includes/DefaultSettings.php
   version_regex: "wgVersion\\s*=\\s*'([^']+)'"
-  eol_before: null
+  eol_before: "1.44"   # 1.45 current (EOL 2026-12-31); flag 1.44 and older
 
 - name: Nextcloud
   detect:
@@ -59,4 +55,12 @@
     path_contains: nextcloud
   version_file: version.php
   version_regex: "VersionString\\s*=\\s*'([^']+)'"
-  eol_before: null
+  eol_before: "31.0"   # 33.x current (EOL 2027-02-28); 32 EOL 2026-09-30; flag 31 and older
+
+- name: Pydio
+  detect:
+    file: base.conf.php
+    path_contains: pydio
+  version_file: conf/VERSION
+  version_regex: null
+  eol_before: null     # No endoflife.date data; flag via KEV for known-vulnerable versions
