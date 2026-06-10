@@ -125,3 +125,33 @@ def test_degraded_lookup_does_not_retry_network_per_cve(tmp_path):
             assert client.lookup(f"CVE-2024-{i:04d}") is None
         assert mock_client.return_value.__enter__.return_value.get.call_count == 1
     assert client.is_degraded
+
+
+def test_stale_cache_fallback_is_flagged_not_degraded(tmp_path):
+    """Review I2: a failed network refresh that serves an expired on-disk
+    cache must set is_stale (operator-visible), not silently succeed."""
+    client = EPSSClient(cache_dir=tmp_path)
+    client.cache_path.write_bytes(_make_epss_csv_gz())
+    old = time.time() - (client.ttl_seconds + 3600)  # past TTL
+    os.utime(client.cache_path, (old, old))
+    with patch("scripts.lib.feed_cache.httpx.Client") as mock_client:
+        mock_client.return_value.__enter__.return_value.get.side_effect = (
+            httpx.ConnectError("boom")
+        )
+        client.refresh()
+    assert client.is_stale is True
+    assert client.is_degraded is False
+    assert client.lookup("CVE-2024-12345") is not None  # stale data still served
+
+
+def test_empty_feed_raises_and_degrades(tmp_path):
+    """Review M5: an all-rows-skipped feed (schema drift) degrades rather
+    than silently enriching nothing."""
+    client = EPSSClient(cache_dir=tmp_path)
+    empty = gzip.compress(b"cve,epss,percentile\n")  # header only, zero rows
+    resp = MagicMock(status_code=200, content=empty)
+    with patch("scripts.lib.feed_cache.httpx.Client") as mock_client:
+        mock_client.return_value.__enter__.return_value.get.return_value = resp
+        client.refresh()
+    assert client.is_degraded
+    assert not client.cache_path.exists()

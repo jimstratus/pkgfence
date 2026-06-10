@@ -15,6 +15,7 @@ import time
 from pathlib import Path
 
 import httpx
+import portalocker
 
 from scripts.lib.logger import get_logger
 
@@ -39,6 +40,10 @@ class FeedCacheClient:
         self.ttl_seconds = ttl_seconds
         self._loaded = False
         self.is_degraded = False
+        # True when a network refresh failed and we are serving an
+        # expired on-disk cache. Distinct from is_degraded (no data at all)
+        # so the operator still sees the feed is not current (review I2).
+        self.is_stale = False
 
     def _is_cache_fresh(self) -> bool:
         if not self.cache_path.exists():
@@ -52,23 +57,35 @@ class FeedCacheClient:
         degraded (degrade-once)."""
         if self._loaded or self.is_degraded:
             return
-        if not self._is_cache_fresh():
-            tmp_path = self.cache_path.with_suffix(self.cache_path.suffix + ".tmp")
+        network_attempted = not self._is_cache_fresh()
+        if network_attempted:
+            # Per-process tmp name: a concurrent run must not write the
+            # tmp file another process already validated, which would
+            # publish unvalidated bytes through our os.replace (review I1).
+            tmp_path = self.cache_path.with_suffix(
+                f"{self.cache_path.suffix}.{os.getpid()}.tmp"
+            )
             try:
                 with httpx.Client(timeout=self.TIMEOUT) as client:
                     resp = client.get(self.FEED_URL)
                 if resp.status_code == 200:
                     tmp_path.write_bytes(resp.content)
                     self._parse(tmp_path)  # validate BEFORE publishing
-                    os.replace(tmp_path, self.cache_path)
+                    # Serialize the publish so a concurrent run can't read a
+                    # half-written cache between our truncate and rename.
+                    with portalocker.Lock(
+                        str(self.cache_path) + ".lock", timeout=30
+                    ):
+                        os.replace(tmp_path, self.cache_path)
                     self._loaded = True
                     return
                 log.warning("%s fetch returned %d",
                             type(self).__name__, resp.status_code)
             except httpx.HTTPError as e:
                 log.warning("%s fetch failed: %s", type(self).__name__, e)
-            except Exception as e:  # noqa: BLE001 — corrupt blob (gzip/CSV/JSON/...)
-                log.warning("%s response invalid: %s", type(self).__name__, e)
+            except Exception:  # noqa: BLE001 — corrupt blob (gzip/CSV/JSON/...)
+                log.warning("%s response invalid", type(self).__name__,
+                            exc_info=True)
             finally:
                 tmp_path.unlink(missing_ok=True)
         # Fall back to whatever is on disk (fresh, or stale-but-present).
@@ -76,9 +93,13 @@ class FeedCacheClient:
             try:
                 self._parse(self.cache_path)
                 self._loaded = True
+                # A network attempt was made and failed, yet we loaded the
+                # cache → the data on disk is past its TTL (review I2).
+                self.is_stale = network_attempted
                 return
-            except Exception as e:  # noqa: BLE001
-                log.warning("%s cache parse failed: %s", type(self).__name__, e)
+            except Exception:  # noqa: BLE001
+                log.warning("%s cache parse failed", type(self).__name__,
+                            exc_info=True)
         self.is_degraded = True
 
     def _ensure_loaded(self) -> bool:

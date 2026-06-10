@@ -266,8 +266,10 @@ def detect_eol_remote(
             version_path = install_root.rstrip("/") + "/" + version_file
 
             if not _is_safe_remote_version_path(version_path, discover_paths):
+                # %r on the remote-controlled path so log-escape control
+                # chars can't forge terminal/log output (review follow-up).
                 log.warning(
-                    "EOL remote scan: refusing to read %s on %s (outside discover_paths)",
+                    "EOL remote scan: refusing to read %r on %s (outside discover_paths)",
                     version_path, target_name,
                 )
                 continue
@@ -286,17 +288,24 @@ def detect_eol_remote(
             if version_regex:
                 m = re.search(version_regex, cat_output)
                 if not m:
-                    continue  # malformed — skip silently
+                    log.warning(
+                        "EOL remote scan: %s on %s did not match version_regex "
+                        "for %s; skipping", version_path, target_name, entry["name"],
+                    )
+                    continue
                 version = m.group(1).strip()
             else:
                 # Plain version file — take only the FIRST line, and only
                 # if it looks like a version token (S4a containment).
                 first_line = cat_output.strip().splitlines()[0].strip()
                 version = first_line
-            if not version or not _VERSION_RE.fullmatch(version):
+            # Must be a version-shaped token AND contain a digit — a digit-free
+            # token ("---") parses to (0,) and would forge a noise EOL finding.
+            if (not version or not _VERSION_RE.fullmatch(version)
+                    or not any(c.isdigit() for c in version)):
                 log.warning(
-                    "EOL remote scan: %s on %s did not yield a version-shaped "
-                    "string; skipping", version_path, target_name,
+                    "EOL remote scan: %s on %s (%s) did not yield a version-shaped "
+                    "string; skipping", version_path, target_name, entry["name"],
                 )
                 continue
 

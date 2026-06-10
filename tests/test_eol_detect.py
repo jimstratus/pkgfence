@@ -124,3 +124,15 @@ def test_remote_eol_rejects_non_version_content():
     ]
     findings = detect_eol_remote(["/var/www"], runner, "bespin", "bespin.example")
     assert findings == []
+
+
+def test_remote_eol_rejects_digit_free_version_token():
+    """A digit-free token like '----' is version-shaped per the charset but
+    parses to (0,) and would forge a noise EOL finding — reject it."""
+    runner = MagicMock()
+    runner.run.side_effect = [
+        "/var/www/pydio/base.conf.php\n",  # find
+        "------\n",                          # cat — version-charset but no digit
+    ]
+    findings = detect_eol_remote(["/var/www"], runner, "bespin", "bespin.example")
+    assert findings == []

@@ -240,12 +240,16 @@ def run_scan(
     findings = enrich_with_kev(findings, kev)
     if kev.is_degraded:
         degraded_modes.append("CISA KEV feed degraded — exploit-status not enriched")
+    elif kev.is_stale:
+        degraded_modes.append("CISA KEV feed stale — refresh failed, serving cached data")
 
     # Layer 3.5: EPSS enrichment
     epss = EPSSClient(cache_dir=state_dir / "cache" / "epss")
     findings = enrich_with_epss(findings, epss)
     if epss.is_degraded:
         degraded_modes.append("EPSS feed degraded — exploit-probability not enriched")
+    elif epss.is_stale:
+        degraded_modes.append("EPSS feed stale — refresh failed, serving cached data")
 
     # Compute priority_score on every finding (after all enrichment, before triage)
     for f in findings:
