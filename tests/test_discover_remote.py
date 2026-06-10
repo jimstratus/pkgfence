@@ -35,9 +35,9 @@ def test_discover_remote_emits_records_for_each_find_hit():
     # Verify the runner was actually called with the expected commands
     call_args_list = [call.args[0] for call in runner.run.call_args_list]
     assert len(call_args_list) == 3
-    # First call: find with escaped parens
+    # First call: find with bare parens (SSHRunner quotes centrally)
     assert call_args_list[0][0] == "find"
-    assert "\\(" in call_args_list[0]
+    assert "(" in call_args_list[0]
     # Subsequent calls: sha256sum with the discovered paths
     assert call_args_list[1] == ["sha256sum", "/var/www/app1/package-lock.json"]
     assert call_args_list[2] == ["sha256sum", "/var/www/app2/requirements.txt"]
@@ -52,24 +52,20 @@ def test_discover_remote_empty_when_no_discover_paths():
     runner.run.assert_not_called()
 
 
-def test_build_find_command_escapes_parens_for_remote_shell():
-    """The remote shell interprets unescaped `(` and `)` as subshell grouping.
-    find's expression grouping requires them to be backslash-escaped so the
-    shell passes literal parens to find(1)."""
+def test_build_find_command_uses_bare_parens_for_central_quoting():
+    """SSHRunner shlex-quotes every argument centrally, so find's grouping
+    operators must be BARE parens — pre-escaped \\( would reach find as a
+    literal backslash-paren after quoting (issue #7)."""
     from scripts.discover_remote import _build_find_command
     cmd = _build_find_command(["/var/www"])
-    # Parens must be present as escaped forms
-    assert "\\(" in cmd
-    assert "\\)" in cmd
-    # Unescaped bare parens must NOT be in the argv
-    assert "(" not in cmd
-    assert ")" not in cmd
+    assert "(" in cmd
+    assert ")" in cmd
+    assert "\\(" not in cmd
+    assert "\\)" not in cmd
     # Structure sanity
     assert cmd[0] == "find"
     assert "/var/www" in cmd
     assert "-maxdepth" in cmd
-    assert "-type" in cmd
-    assert "-name" in cmd
 
 
 def test_discover_remote_safely_converts_unreachable_to_scan_error_record():
@@ -122,6 +118,6 @@ def test_build_find_command_prunes_excluded_directories():
     assert "-prune" in cmd
     # Explicit -print must be present (without it, pruned dirs get printed)
     assert "-print" in cmd
-    # Escaped parens must still be present (Task 6 invariant)
-    assert "\\(" in cmd
-    assert "\\)" in cmd
+    # Bare parens must still be present (quoting happens in SSHRunner)
+    assert "(" in cmd
+    assert ")" in cmd

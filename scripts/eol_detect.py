@@ -144,7 +144,7 @@ def _build_eol_find_command(
     """Build a `find` argv matching all catalog detect.file patterns."""
     cmd = ["find"] + list(discover_paths)
     cmd += ["-maxdepth", "6"]
-    cmd += ["\\("]
+    cmd += ["("]
     first = True
     for entry in catalog:
         detect_file = entry.get("detect", {}).get("file", "")
@@ -157,7 +157,7 @@ def _build_eol_find_command(
             cmd += ["-o"]
         cmd += ["-name", filename]
         first = False
-    cmd += ["\\)", "-print"]
+    cmd += [")", "-print"]
     return cmd
 
 

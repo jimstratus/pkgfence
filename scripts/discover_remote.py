@@ -2,7 +2,10 @@
 host and yield RemoteManifest records.
 
 Uses only S3-allowlisted commands:
-    find <discover_paths> -maxdepth N -type f \\( -name 'package-lock.json' -o ... \\)
+    find <discover_paths> -maxdepth N -type f ( -name 'package-lock.json' -o ... )
+
+Grouping parens are passed BARE — SSHRunner shlex-quotes every argument
+centrally before the remote shell sees it (issue #7).
     sha256sum <path>
 
 Never retrieves manifest contents. Never writes anything. Path + hash only.
@@ -29,25 +32,25 @@ def _build_find_command(discover_paths: list[str]) -> list[str]:
 
     # Prune group: skip DEFAULT_EXCLUDES directories.
     # Sort for deterministic argv (DEFAULT_EXCLUDES is a frozenset).
-    cmd += ["\\("]
+    cmd += ["("]
     first = True
     for exc in sorted(DEFAULT_EXCLUDES):
         if not first:
             cmd += ["-o"]
         cmd += ["-name", exc]
         first = False
-    cmd += ["\\)", "-prune", "-o"]
+    cmd += [")", "-prune", "-o"]
 
     # Match group: files with manifest filenames, with explicit -print
     # so pruned directories are not printed by the default action.
-    cmd += ["-type", "f", "\\("]
+    cmd += ["-type", "f", "("]
     first = True
     for name in MANIFEST_ECOSYSTEM:
         if not first:
             cmd += ["-o"]
         cmd += ["-name", name]
         first = False
-    cmd += ["\\)", "-print"]
+    cmd += [")", "-print"]
     return cmd
 
 

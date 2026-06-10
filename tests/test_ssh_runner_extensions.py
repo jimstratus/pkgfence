@@ -2,6 +2,7 @@
 
 These must preserve S1 (no silent fallback) and S3 (command allowlist)."""
 import pytest
+import shlex
 from unittest.mock import patch, MagicMock
 
 from scripts.lib.ssh_runner import SSHRunner, SSHUnreachableError, ALLOWED_COMMANDS
@@ -36,12 +37,12 @@ def test_ssh_runner_use_sudo_prefixes_command_with_sudo_n():
         mock_run.return_value = MagicMock(returncode=0, stdout="ok\n", stderr="")
         runner.run(["osv-scanner", "-L", "/tmp/lock.json", "--format", "json"])
     args = mock_run.call_args[0][0]
-    # Use index-based search instead of positional arithmetic —
-    # the position of 'sudo' shifts depending on whether key_file is set.
-    assert "sudo" in args
-    sudo_idx = args.index("sudo")
-    assert args[sudo_idx + 1] == "-n"
-    assert args[sudo_idx + 2] == "osv-scanner"
+    # The remote command is one shlex-quoted string (last ssh arg);
+    # split it back to recover the intended remote argv.
+    remote_argv = shlex.split(args[-1])
+    assert remote_argv[0] == "sudo"
+    assert remote_argv[1] == "-n"
+    assert remote_argv[2] == "osv-scanner"
 
 
 def test_ssh_runner_use_sudo_still_enforces_allowlist():
