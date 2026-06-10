@@ -243,3 +243,12 @@ def test_mal_override_severity_is_configurable():
     f = new_finding("pkg:npm/evil@1.0.0", "MAL-2026-1", "low", "/x")
     apply_mal_override([f], override_severity="high")
     assert f["severity"] == "high"
+
+
+def test_mal_override_tolerates_non_string_aliases():
+    """Issue #18.5 drift fix: a non-string alias must not crash MAL override."""
+    f = new_finding("pkg:npm/x@1", "GHSA-1", "low", "/x")
+    f["aliases"] = ["MAL-2026-1", None, 42]
+    apply_mal_override([f])
+    assert f["severity"] == "critical"
+    assert f["mal_flagged"] is True
