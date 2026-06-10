@@ -71,21 +71,35 @@ def scan_remote_manifest(
 
 
 def _parse_batch_output(raw: str, manifests: list[RemoteManifest]) -> list[Finding]:
-    """Map each batch result back to its manifest via source.path."""
+    """Map each batch result back to its manifest via source.path.
+
+    Any structural anomaly — non-JSON, a non-list `results`, or a result
+    whose source.path doesn't match a manifest we asked for (osv-scanner
+    may normalize/resolve the -L argument) — raises ScannerError so the
+    caller degrades to per-manifest scanning. That fallback uses the
+    caller-supplied manifest_path as authoritative, sidestepping the
+    path-matching fragility entirely. Never silently drop a result
+    (CLAUDE.md: SCAN_ERROR flows through, never block)."""
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as e:
         raise ScannerError(f"osv-scanner batch returned invalid JSON: {e}") from e
     by_path = {m["path"]: m for m in manifests}
     findings: list[Finding] = []
-    for result in data.get("results", []):
-        src = (result.get("source") or {}).get("path", "")
-        manifest = by_path.get(src)
-        if manifest is None:
-            log.warning("batch scan returned unknown source path %r; skipping", src)
-            continue
-        findings.extend(_findings_from_result(
-            result, manifest_path=manifest["path"], target=manifest["target"]))
+    try:
+        results = data.get("results", [])
+        for result in results:
+            src = (result.get("source") or {}).get("path", "")
+            manifest = by_path.get(src)
+            if manifest is None:
+                # Can't map this result back — fall back rather than drop it.
+                raise ScannerError(
+                    f"batch result source path {src!r} matches no scanned manifest"
+                )
+            findings.extend(_findings_from_result(
+                result, manifest_path=manifest["path"], target=manifest["target"]))
+    except (AttributeError, TypeError) as e:
+        raise ScannerError(f"osv-scanner batch output malformed: {e}") from e
     return findings
 
 

@@ -260,3 +260,46 @@ def test_batch_scan_falls_back_to_per_manifest_on_parse_error():
     findings = scan_remote_manifests(manifests, runner)
     assert runner.run.call_count == 3
     assert findings == []  # per-manifest path succeeded; no SCAN_ERROR
+
+
+def test_batch_scan_unreachable_yields_scan_error_per_manifest():
+    """Issue #19.3: SSHUnreachableError on the batched call produces one
+    SCAN_ERROR per scannable manifest (same isolation as per-manifest)."""
+    runner = MagicMock()
+    runner.run.side_effect = SSHUnreachableError("dropped mid-scan")
+    manifests = [
+        {"target": "bespin", "host": "h", "path": "/a/package-lock.json",
+         "ecosystem": "npm", "manifest_hash": "", "tier": 1},
+        {"target": "bespin", "host": "h", "path": "/b/package-lock.json",
+         "ecosystem": "npm", "manifest_hash": "", "tier": 1},
+    ]
+    findings = scan_remote_manifests(manifests, runner)
+    assert runner.run.call_count == 1  # one batched attempt, no per-manifest retry
+    assert len(findings) == 2
+    assert all(f["status"] == "SCAN_ERROR" for f in findings)
+    assert {f["manifest_path"] for f in findings} == {
+        "/a/package-lock.json", "/b/package-lock.json"}
+
+
+def test_batch_scan_unmappable_source_path_falls_back_not_drops():
+    """If osv-scanner echoes a source.path we can't map back (path
+    normalization), fall back to per-manifest rather than silently drop
+    the result (never-silently-drop contract)."""
+    runner = MagicMock()
+    # Batch returns a result whose source path differs from the -L argument,
+    # then the two per-manifest retries return empty clean scans.
+    runner.run.side_effect = [
+        '{"results": [{"source": {"path": "/normalized/a/package-lock.json"}, '
+        '"packages": []}]}',
+        '{"results": []}',
+        '{"results": []}',
+    ]
+    manifests = [
+        {"target": "bespin", "host": "h", "path": "/a/package-lock.json",
+         "ecosystem": "npm", "manifest_hash": "", "tier": 1},
+        {"target": "bespin", "host": "h", "path": "/b/package-lock.json",
+         "ecosystem": "npm", "manifest_hash": "", "tier": 1},
+    ]
+    findings = scan_remote_manifests(manifests, runner)
+    assert runner.run.call_count == 3  # 1 batch + 2 per-manifest fallback
+    assert findings == []  # no silent drop, no spurious SCAN_ERROR
