@@ -82,7 +82,7 @@ pre-quote or pre-escape. Pass find's grouping operators as bare `"("` / `")"`.
 
 - **One test file per source module:** `test_<module>.py`
 - **All imports at module level** — never inline imports inside test functions
-- **Mock subprocess as `patch("scripts.<module>.subprocess.run")`** — never bare `patch("subprocess.run")` (breaks if module uses `from subprocess import run`)
+- **Mock subprocess as `patch("scripts.lib.proc.subprocess.run")`** — all modules route through `lib/proc.run_capture`
 - **Use `tmp_state` and `tmp_registry` fixtures** from `conftest.py` for isolation
 - **Remote module tests:** inject `MagicMock` SSHRunners via function params, don't patch globally
 

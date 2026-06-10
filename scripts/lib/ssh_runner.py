@@ -10,6 +10,8 @@ import shlex
 from pathlib import PurePosixPath
 from typing import List
 
+from scripts.lib.proc import run_capture
+
 
 class SSHUnreachableError(Exception):
     """Raised when an SSH target is unreachable. NEVER caught and converted
@@ -83,11 +85,7 @@ class SSHRunner:
         self._check_allowlist(command)
         ssh_cmd = self._build_ssh_cmd(command)
         try:
-            result = subprocess.run(
-                ssh_cmd, capture_output=True, text=True,
-                encoding="utf-8", errors="replace",
-                timeout=300, check=False,
-            )
+            result = run_capture(ssh_cmd, timeout=300)
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
             raise SSHUnreachableError(f"SSH to {self.host} failed: {e}") from e
         if result.returncode == 255:  # SSH connect failure

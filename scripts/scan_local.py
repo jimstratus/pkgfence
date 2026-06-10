@@ -15,6 +15,8 @@ import shutil
 import subprocess
 from typing import Optional
 
+from scripts.lib.proc import run_capture
+
 from cvss import CVSS2, CVSS3, CVSS4
 from cvss.exceptions import CVSSError
 
@@ -38,16 +40,7 @@ def detect_scanner(name: str = "osv-scanner") -> Optional[str]:
     if resolved is None:
         return None
     try:
-        result = subprocess.run(
-            [resolved, "--version"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=10,
-            check=False,
-            shell=False,
-        )
+        result = run_capture([resolved, "--version"], timeout=10)
     except (FileNotFoundError, OSError):
         return None
     if result.returncode != 0:
@@ -90,14 +83,9 @@ def run_osv_scanner_lockfile(lockfile_path: str) -> str:
         EmptyLockfileError: on exit 128 (handle via Task 8.5)
     """
     try:
-        result = subprocess.run(
+        result = run_capture(
             ["osv-scanner", "-L", lockfile_path, "--format", "json"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
             timeout=300,
-            check=False,
         )
     except FileNotFoundError as e:
         raise ScannerError(f"osv-scanner binary not found: {e}") from e
