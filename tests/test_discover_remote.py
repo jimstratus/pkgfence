@@ -7,13 +7,17 @@ from scripts.lib.ssh_runner import SSHUnreachableError
 
 def test_discover_remote_emits_records_for_each_find_hit():
     """SSHRunner.run('find ...') returns newline-delimited paths; we yield
-    one RemoteManifest per path with ecosystem derived from filename."""
+    one RemoteManifest per path with ecosystem derived from filename.
+
+    Issue #19.2: all manifests are hashed in a single batched sha256sum call
+    (1 find + 1 sha256sum = 2 total runner.run calls regardless of N paths).
+    """
     runner = MagicMock()
-    # First call = find; subsequent calls = sha256sum per file
+    # First call = find; second call = batched sha256sum for all paths
     runner.run.side_effect = [
         "/var/www/app1/package-lock.json\n/var/www/app2/requirements.txt\n",
-        "a" * 64 + "  /var/www/app1/package-lock.json\n",
-        "b" * 64 + "  /var/www/app2/requirements.txt\n",
+        ("a" * 64) + "  /var/www/app1/package-lock.json\n"
+        + ("b" * 64) + "  /var/www/app2/requirements.txt\n",
     ]
     target = {
         "name": "dev-host-1",
@@ -31,16 +35,18 @@ def test_discover_remote_emits_records_for_each_find_hit():
     assert records[0]["manifest_hash"] == "a" * 64
     assert records[0]["tier"] == 2
     assert records[1]["ecosystem"] == "python"
+    assert records[1]["manifest_hash"] == "b" * 64
 
-    # Verify the runner was actually called with the expected commands
+    # Verify the runner was called exactly twice: find + one batched sha256sum
     call_args_list = [call.args[0] for call in runner.run.call_args_list]
-    assert len(call_args_list) == 3
+    assert len(call_args_list) == 2
     # First call: find with bare parens (SSHRunner quotes centrally)
     assert call_args_list[0][0] == "find"
     assert "(" in call_args_list[0]
-    # Subsequent calls: sha256sum with the discovered paths
-    assert call_args_list[1] == ["sha256sum", "/var/www/app1/package-lock.json"]
-    assert call_args_list[2] == ["sha256sum", "/var/www/app2/requirements.txt"]
+    # Second call: batched sha256sum with both paths in one invocation
+    assert call_args_list[1][0] == "sha256sum"
+    assert "/var/www/app1/package-lock.json" in call_args_list[1]
+    assert "/var/www/app2/requirements.txt" in call_args_list[1]
 
 
 def test_discover_remote_empty_when_no_discover_paths():
@@ -84,27 +90,32 @@ def test_discover_remote_safely_converts_unreachable_to_scan_error_record():
     assert "unreachable" in records[0].get("error", "")
 
 
-def test_discover_remote_safely_yields_partial_results_before_scan_error():
-    """If SSHUnreachableError raises mid-iteration (e.g. after some sha256sum
-    calls succeeded), discover_remote_safely yields the good records first
-    and appends a SCAN_ERROR sentinel. Task 10 callers must handle this
-    mixed-output case: SCAN_ERROR does NOT mean zero valid records.
+def test_discover_remote_safely_yields_scan_error_when_hash_phase_unreachable():
+    """If SSHUnreachableError raises during the sha256sum phase, no manifests
+    from that target are yielded — only a SCAN_ERROR sentinel.
+
+    With batched hashing (issue #19.2), all sha256sum calls are made eagerly
+    before any yield. An SSHUnreachableError during hashing therefore prevents
+    all records from that target, unlike the old per-path approach where some
+    records could have been yielded before the error. discover_remote_safely
+    converts the exception to a single SCAN_ERROR record.
+
+    NOTE: partial results across different *targets* are still possible at the
+    scan_command level (each target is a separate discover_remote_safely call).
     """
     runner = MagicMock()
     runner.run.side_effect = [
         "/var/www/app1/package-lock.json\n/var/www/app2/requirements.txt\n",
-        "a" * 64 + "  /var/www/app1/package-lock.json\n",
-        SSHUnreachableError("dropped mid-scan"),
+        SSHUnreachableError("dropped mid-scan"),  # sha256sum batch call fails
     ]
     target = {"name": "dev-host-1", "host": "h", "user": "u", "tier": 2,
               "discover_paths": ["/var/www"]}
     records = list(discover_remote_safely(target, runner))
-    # One good record, then a SCAN_ERROR sentinel
-    assert len(records) == 2
-    assert records[0]["ecosystem"] == "npm"
-    assert records[0]["manifest_hash"] == "a" * 64
-    assert records[1]["ecosystem"] == "SCAN_ERROR"
-    assert "dropped mid-scan" in records[1]["error"]
+    # No good records — hash phase failed before any yield; just SCAN_ERROR
+    assert len(records) == 1
+    assert records[0]["ecosystem"] == "SCAN_ERROR"
+    assert records[0]["target"] == "dev-host-1"
+    assert "dropped mid-scan" in records[0]["error"]
 
 
 def test_build_find_command_prunes_excluded_directories():
@@ -123,3 +134,20 @@ def test_build_find_command_prunes_excluded_directories():
     # Bare parens must still be present (quoting happens in SSHRunner)
     assert "(" in cmd
     assert ")" in cmd
+
+
+def test_discovery_hashes_all_manifests_in_one_roundtrip():
+    """Issue #19.2: N discovered manifests = 1 find + 1 sha256sum call."""
+    runner = MagicMock()
+    runner.run.side_effect = [
+        "/var/www/a/package-lock.json\n/var/www/b/composer.lock\n",  # find
+        ("a" * 64) + "  /var/www/a/package-lock.json\n"
+        + ("b" * 64) + "  /var/www/b/composer.lock\n",               # sha256sum
+    ]
+    target = {"name": "bespin", "host": "h", "tier": 1,
+              "discover_paths": ["/var/www"]}
+    manifests = list(discover_remote_manifests(target, runner))
+    assert len(manifests) == 2
+    assert runner.run.call_count == 2
+    assert runner.run.call_args_list[1].args[0][0] == "sha256sum"
+    assert manifests[0]["manifest_hash"] == "a" * 64
