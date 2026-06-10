@@ -278,6 +278,7 @@ def run_scan(
     save_baseline(
         baseline_path,
         {
+            "run_id": run_id,
             "scan_timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "manifest_hashes": {
                 m["path"]: m.get("manifest_hash", "") for m in manifests

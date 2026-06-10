@@ -16,6 +16,9 @@ from pathlib import Path
 import httpx
 from ruamel.yaml import YAML
 
+from scripts.lib.baseline import load_baseline
+from scripts.lib.types import is_status_record
+
 log = logging.getLogger(__name__)
 
 SEVERITY_RANK: dict[str, int] = {
@@ -27,6 +30,20 @@ SEVERITY_RANK: dict[str, int] = {
 }
 
 ALL_SEVERITIES = ["critical", "high", "medium", "low", "info"]
+
+
+def _new_findings_from_baseline(baseline: dict) -> dict[str, int]:
+    """Per-severity counts of diff_status==NEW findings from the saved
+    baseline — the single source of 'newness' (issue #13). Status records
+    don't count."""
+    counts = {s: 0 for s in ALL_SEVERITIES}
+    for f in baseline.get("findings") or []:
+        if f.get("diff_status") != "NEW" or is_status_record(f):
+            continue
+        sev = f.get("severity", "medium")
+        if sev in counts:
+            counts[sev] += 1
+    return counts
 
 
 def parse_report_frontmatter(report_path: Path) -> dict:
@@ -113,11 +130,21 @@ def check_for_new_findings(state_dir: Path, threshold: str = "critical") -> dict
     prev_sev = prev_fm.get("findings_by_severity") or {}
     curr_sev = curr_fm.get("findings_by_severity") or {}
 
-    # Compute delta per severity, clamped to 0
-    new_findings: dict[str, int] = {}
-    for sev in ALL_SEVERITIES:
-        delta = (curr_sev.get(sev, 0) or 0) - (prev_sev.get(sev, 0) or 0)
-        new_findings[sev] = max(0, delta)
+    # Newness comes from the saved baseline's per-finding diff_status,
+    # keyed to the current report by run_id (issue #13: count-deltas miss
+    # net-zero churn — one fixed + one new = delta 0 = missed alert).
+    baseline = load_baseline(state_dir / "baselines" / "default.json")
+    if baseline is not None and baseline.get("run_id") == curr_fm.get("run_id"):
+        new_findings = _new_findings_from_baseline(baseline)
+    else:
+        log.warning(
+            "notify: no baseline matching run %s — falling back to "
+            "frontmatter count-delta", curr_fm.get("run_id"),
+        )
+        new_findings = {}
+        for sev in ALL_SEVERITIES:
+            delta = (curr_sev.get(sev, 0) or 0) - (prev_sev.get(sev, 0) or 0)
+            new_findings[sev] = max(0, delta)
 
     # Check if any delta at or above threshold is > 0
     threshold_rank = SEVERITY_RANK.get(threshold, 0)
@@ -193,7 +220,7 @@ def format_stdout_summary(result: dict) -> str:
     return "\n".join(lines)
 
 
-def _build_webhook_payload(result: dict, threshold: str) -> dict:
+def _build_webhook_payload(result: dict, threshold: str, state_dir: Path) -> dict:
     """Construct the full webhook payload from a check_for_new_findings result."""
     now = datetime.datetime.now(datetime.timezone.utc)
     return {
@@ -205,7 +232,7 @@ def _build_webhook_payload(result: dict, threshold: str) -> dict:
         "new_findings": result["new_findings"],
         "previous_run_id": result["previous_run_id"],
         "targets": result["targets"],
-        "report_path": f"state/reports/{result['run_id']}.md",
+        "report_path": str(state_dir / "reports" / f"{result['run_id']}.md"),
         "summary": result["summary"],
     }
 
@@ -247,7 +274,7 @@ def main(argv=None) -> int:
     print(format_stdout_summary(result))
 
     if result["triggered"] and args.webhook:
-        payload = _build_webhook_payload(result, args.threshold)
+        payload = _build_webhook_payload(result, args.threshold, state_dir=state_dir)
         send_webhook(args.webhook, payload)
 
     return 1 if result["triggered"] else 0
