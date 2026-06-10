@@ -231,31 +231,21 @@ def run_scan(
     findings.extend(eol_findings_local)
     findings.extend(eol_findings_remote)
 
-    # Layer 3: Threat enrichment
+    # Layer 3: threat enrichment. Clients refresh lazily on first lookup
+    # and degrade at most once per run (issue #12); with zero CVE findings
+    # the EPSS feed is never even downloaded (issue #19).
     log.info("L3 threat enrichment starting")
     degraded_modes: list[str] = []
     kev = KEVClient(cache_dir=state_dir / "cache" / "kev")
-    try:
-        kev.refresh()
-    except Exception as e:  # noqa: BLE001 — any refresh failure = degraded
-        log.warning("KEV refresh failed: %s", e)
-        degraded_modes.append(f"CISA KEV unreachable: {e}")
-    if getattr(kev, "is_degraded", False):
-        degraded_modes.append("CISA KEV feed degraded — exploit-status not enriched")
     findings = enrich_with_kev(findings, kev)
+    if kev.is_degraded:
+        degraded_modes.append("CISA KEV feed degraded — exploit-status not enriched")
 
     # Layer 3.5: EPSS enrichment
     epss = EPSSClient(cache_dir=state_dir / "cache" / "epss")
-    try:
-        epss.refresh()
-    except Exception as e:  # noqa: BLE001
-        log.warning("EPSS refresh failed: %s", e)
-        degraded_modes.append(f"EPSS unreachable: {e}")
-    if getattr(epss, "is_degraded", False) and not any(
-        "EPSS" in m for m in degraded_modes
-    ):
-        degraded_modes.append("EPSS feed degraded — exploit-probability not enriched")
     findings = enrich_with_epss(findings, epss)
+    if epss.is_degraded:
+        degraded_modes.append("EPSS feed degraded — exploit-probability not enriched")
 
     # Compute priority_score on every finding (after all enrichment, before triage)
     for f in findings:
