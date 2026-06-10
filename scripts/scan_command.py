@@ -16,7 +16,6 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
 
 from scripts.discover import discover_manifests_full
@@ -40,7 +39,7 @@ from scripts.lib.baseline import save_baseline, load_baseline, diff_findings
 from scripts.lib.kev_client import KEVClient
 from scripts.lib.registry import load_registry, RegistryError
 from scripts.lib.remote_types import RemoteManifest
-from scripts.lib.config import load_defaults, DefaultsError
+from scripts.lib.config import load_defaults, DefaultsError, load_yaml
 from scripts.lib.exceptions import load_exceptions
 from scripts.lib.types import Finding, SEVERITY_RANK, is_status_record
 from scripts.eol_detect import detect_eol_local, detect_eol_remote
@@ -71,8 +70,7 @@ def _load_exclusions_config(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
     try:
-        loader = YAML(typ="safe")
-        data = loader.load(path.read_text(encoding="utf-8"))
+        data = load_yaml(path)
         return data or {}
     except YAMLError as e:
         log.warning("exclusions parse failed at %s: %s", path, e)

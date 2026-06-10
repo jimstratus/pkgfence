@@ -1,6 +1,6 @@
 """Test the defaults.yaml loader."""
 import pytest
-from scripts.lib.config import load_defaults, DefaultsError
+from scripts.lib.config import load_defaults, DefaultsError, load_yaml
 
 
 def test_load_defaults_returns_expected_keys():
@@ -21,3 +21,15 @@ def test_load_defaults_exit_codes_are_integers():
     assert cfg["exit_codes"]["findings"] == 1
     assert cfg["exit_codes"]["scanner_error"] == 2
     assert cfg["exit_codes"]["config_error"] == 3
+
+
+def test_load_yaml_safe_loader(tmp_path):
+    p = tmp_path / "x.yaml"
+    p.write_text("b: 2\na: 1\n", encoding="utf-8")
+    assert load_yaml(p) == {"b": 2, "a": 1}
+
+
+def test_load_yaml_empty_file_returns_none(tmp_path):
+    p = tmp_path / "empty.yaml"
+    p.write_text("", encoding="utf-8")
+    assert load_yaml(p) is None

@@ -7,11 +7,9 @@ import datetime
 from pathlib import Path
 from typing import Any
 
-from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
 
-
-_yaml = YAML(typ="safe")
+from scripts.lib.config import load_yaml
 
 
 class ExceptionsError(Exception):
@@ -24,7 +22,7 @@ def load_exceptions(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
     try:
-        data = _yaml.load(path.read_text(encoding="utf-8"))
+        data = load_yaml(path)
     except YAMLError as e:
         raise ExceptionsError(f"Exceptions YAML parse error in {path}: {e}") from e
     if data is None:

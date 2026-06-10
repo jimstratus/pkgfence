@@ -18,6 +18,16 @@ DEFAULTS_PATH = SKILL_ROOT / "config" / "defaults.yaml"
 _yaml_loader = YAML(typ="safe")
 
 
+def load_yaml(path: Path) -> Any:
+    """Load a YAML file with the safe loader. Raises YAMLError on parse
+    failure — each caller decides its own policy (strict for defaults,
+    tolerant for exclusions). Returns None for an empty file.
+
+    NOT for files that get round-tripped back to disk (registry) — those
+    need YAML(typ='rt') to preserve key order and comments."""
+    return _yaml_loader.load(Path(path).read_text(encoding="utf-8"))
+
+
 class DefaultsError(Exception):
     pass
 
@@ -28,6 +38,6 @@ def load_defaults() -> dict[str, Any]:
     if not DEFAULTS_PATH.exists():
         raise DefaultsError(f"Defaults file not found: {DEFAULTS_PATH}")
     try:
-        return _yaml_loader.load(DEFAULTS_PATH.read_text())
+        return load_yaml(DEFAULTS_PATH)
     except YAMLError as e:
         raise DefaultsError(f"Defaults parse error: {e}") from e
