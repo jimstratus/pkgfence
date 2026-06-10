@@ -84,15 +84,27 @@ def detect_eol_local(root_paths: list[str]) -> list[Finding]:
 
     for root in root_paths:
         for dirpath, dirnames, filenames in os.walk(root):
+            filename_set = set(filenames)
+            dirname_set = set(dirnames)
             for entry in catalog:
                 detect = entry.get("detect", {})
                 detect_file = detect.get("file", "")
                 path_contains = detect.get("path_contains")
 
-                # Check if the fingerprint file exists in this directory
-                # For entries like "wp-includes/version.php", the detect.file
-                # is a relative path — we check if the full relative path exists
-                # anchored at dirpath.
+                # Cheap pre-filter from the walk's own listing (issue #19.4:
+                # blind is_file() per dir×entry ≈ millions of stats on a
+                # large tree). Single-component detect files must appear in
+                # filenames; multi-component ones need their first directory
+                # component present in dirnames.
+                parts = Path(detect_file).parts if detect_file else ()
+                if not parts:
+                    continue
+                if len(parts) == 1:
+                    if parts[0] not in filename_set:
+                        continue
+                elif parts[0] not in dirname_set:
+                    continue
+
                 fingerprint_path = Path(dirpath) / detect_file
                 if not fingerprint_path.is_file():
                     continue
@@ -101,17 +113,7 @@ def detect_eol_local(root_paths: list[str]) -> list[Finding]:
                 if path_contains and path_contains.lower() not in dirpath.lower():
                     continue
 
-                # Determine the installation root: strip the detect_file subpath
-                # from dirpath so that version_file is resolved relative to root.
-                # e.g. detect.file = "wp-includes/version.php", dirpath = "/var/www"
-                # -> installation root = /var/www (dirpath itself, not a subdir)
-                detect_file_parts = Path(detect_file).parts
-                if len(detect_file_parts) > 1:
-                    # The detect file is in a subdirectory — installation root is dirpath
-                    install_root = dirpath
-                else:
-                    # The detect file is directly in the dir — installation root is dirpath
-                    install_root = dirpath
+                install_root = dirpath
 
                 version = _read_version(install_root, entry)
                 if version is None:

@@ -136,3 +136,21 @@ def test_remote_eol_rejects_digit_free_version_token():
     ]
     findings = detect_eol_remote(["/var/www"], runner, "bespin", "bespin.example")
     assert findings == []
+
+
+def test_local_walk_uses_walk_listing_not_blind_stats(tmp_path, monkeypatch):
+    """Issue #19.4: only directories whose listing can match a catalog
+    entry trigger Path.is_file checks."""
+    deep = tmp_path / "irrelevant" / "nested"
+    deep.mkdir(parents=True)
+    (deep / "random.txt").write_text("x")
+    calls = []
+    real_is_file = Path.is_file
+
+    def counting_is_file(self):
+        calls.append(str(self))
+        return real_is_file(self)
+
+    monkeypatch.setattr(Path, "is_file", counting_is_file)
+    detect_eol_local([str(tmp_path)])
+    assert calls == []  # nothing in the tree matches any catalog entry
