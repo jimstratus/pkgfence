@@ -18,6 +18,13 @@ log = get_logger(__name__)
 EPSS_URL = "https://epss.empiricalsecurity.com/epss_scores-current.csv.gz"
 DEFAULT_TTL_SECONDS = 24 * 60 * 60  # 24h
 
+# The empiricalsecurity.com host 302-redirects to dated CSV files on the same
+# origin (e.g. epss_scores-2026-06-09.csv.gz). We follow the redirect but pin
+# the final URL host to this allowlist to defend against a compromised origin
+# or a malicious redirect chain pointing at an attacker-controlled host.
+EPSS_ALLOWED_HOSTS = frozenset({"epss.empiricalsecurity.com"})
+MAX_REDIRECTS = 3
+
 
 class EPSSClient:
     def __init__(self, cache_dir: Path, ttl_seconds: int = DEFAULT_TTL_SECONDS):
@@ -39,8 +46,14 @@ class EPSSClient:
         loaded_from_network = False
         if not self._is_cache_fresh():
             try:
-                with httpx.Client(timeout=60.0, follow_redirects=True) as client:
+                client_kwargs: dict = {
+                    "timeout": 60.0,
+                    "follow_redirects": True,
+                    "max_redirects": MAX_REDIRECTS,
+                }
+                with httpx.Client(**client_kwargs) as client:
                     resp = client.get(EPSS_URL)
+                self._validate_final_host(resp)
                 if resp.status_code == 200:
                     self.cache_path.write_bytes(resp.content)
                     self._parse_into_memory(resp.content)
@@ -59,6 +72,28 @@ class EPSSClient:
             except (OSError, gzip.BadGzipFile, csv.Error) as e:
                 log.warning("EPSS cache parse failed: %s", e)
                 self.is_degraded = True
+
+    @staticmethod
+    def _validate_final_host(response: httpx.Response) -> None:
+        """Reject the response if a redirect chain landed on a non-allowlisted host.
+
+        The empiricalsecurity.com origin 302-redirects to dated CSV files on
+        the same origin; any other landing host indicates either a compromised
+        origin or a hostile redirect chain, so we treat it as a fetch failure.
+        """
+        url = response.url
+        host = getattr(url, "host", None)
+        scheme = getattr(url, "scheme", None)
+        if host not in EPSS_ALLOWED_HOSTS or (
+            isinstance(scheme, str) and scheme.lower() != "https"
+        ):
+            log.warning(
+                "EPSS feed landed on disallowed URL %s (host=%s scheme=%s)",
+                url,
+                host,
+                scheme,
+            )
+            raise httpx.HTTPError(f"EPSS feed redirected to disallowed URL: {url}")
 
     def _parse_into_memory(self, blob: bytes) -> None:
         decompressed = gzip.decompress(blob).decode("utf-8", errors="replace")
