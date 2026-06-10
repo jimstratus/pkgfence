@@ -215,25 +215,28 @@ def run_scan(
     findings.extend(eol_findings_local)
     findings.extend(eol_findings_remote)
 
-    # Layer 3: threat enrichment. Clients refresh lazily on first lookup
-    # and degrade at most once per run (issue #12); with zero CVE findings
-    # the EPSS feed is never even downloaded (issue #19).
-    log.info("L3 threat enrichment starting")
+    # Layer 3: enrichment — one (client, enrich_fn, degraded_msg, stale_msg)
+    # entry per source (issue #20.1: adding deps.dev later = adding a tuple,
+    # not copying refresh/degraded plumbing). Clients refresh lazily on
+    # first lookup and degrade at most once per run.
+    log.info("L3 enrichment starting")
     degraded_modes: list[str] = []
     kev = KEVClient(cache_dir=state_dir / "cache" / "kev")
-    findings = enrich_with_kev(findings, kev)
-    if kev.is_degraded:
-        degraded_modes.append("CISA KEV feed degraded — exploit-status not enriched")
-    elif kev.is_stale:
-        degraded_modes.append("CISA KEV feed stale — refresh failed, serving cached data")
-
-    # Layer 3.5: EPSS enrichment
     epss = EPSSClient(cache_dir=state_dir / "cache" / "epss")
-    findings = enrich_with_epss(findings, epss)
-    if epss.is_degraded:
-        degraded_modes.append("EPSS feed degraded — exploit-probability not enriched")
-    elif epss.is_stale:
-        degraded_modes.append("EPSS feed stale — refresh failed, serving cached data")
+    enrichers = [
+        (kev, enrich_with_kev,
+         "CISA KEV feed degraded — exploit-status not enriched",
+         "CISA KEV feed stale — refresh failed, serving cached data"),
+        (epss, enrich_with_epss,
+         "EPSS feed degraded — exploit-probability not enriched",
+         "EPSS feed stale — refresh failed, serving cached data"),
+    ]
+    for client, enrich_fn, degraded_msg, stale_msg in enrichers:
+        findings = enrich_fn(findings, client)
+        if client.is_degraded:
+            degraded_modes.append(degraded_msg)
+        elif client.is_stale:
+            degraded_modes.append(stale_msg)
 
     # Layer 4: Triage
     log.info("L4 triage starting")

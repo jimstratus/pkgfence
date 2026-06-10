@@ -210,3 +210,23 @@ def test_run_scan_with_adhoc_path(tmp_path, tmp_state):
 
     assert exit_code == 1
     assert report_path.exists()
+
+
+def test_degraded_enricher_adds_exactly_one_message(tmp_state, tmp_registry):
+    """Issue #20.1: each degraded feed contributes exactly one degraded-mode
+    line, via the shared enricher loop (no ad-hoc dedup hacks)."""
+    from scripts.scan_command import run_scan
+
+    with patch("scripts.scan_command.KEVClient") as kev_cls, \
+         patch("scripts.scan_command.EPSSClient") as epss_cls:
+        kev_cls.return_value.is_degraded = True
+        kev_cls.return_value.is_stale = False
+        epss_cls.return_value.is_degraded = True
+        epss_cls.return_value.is_stale = False
+        epss_cls.return_value.feed_timestamp = None
+        exit_code, report_path = run_scan(tmp_registry, tmp_state)
+    report = report_path.read_text(encoding="utf-8")
+    # Each message renders exactly TWICE: once in the YAML frontmatter
+    # degraded_modes list, once in the body's degraded-mode section.
+    assert report.count("CISA KEV feed degraded") == 2
+    assert report.count("EPSS feed degraded") == 2
