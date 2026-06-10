@@ -103,8 +103,9 @@ def check_for_new_findings(state_dir: Path, threshold: str = "critical") -> dict
 
     Returns:
         dict with keys:
-            triggered (bool): True if any delta at or above threshold is > 0
-            new_findings (dict): per-severity delta (clamped to 0)
+            triggered (bool): True if any new count at or above threshold is > 0
+            new_findings (dict): per-severity new count — max of baseline
+                diff_status=NEW and the report count-delta (clamped to 0)
             run_id (str): current report run_id
             previous_run_id (str): previous report run_id
             targets (list): ssh_targets from current report
@@ -130,21 +131,35 @@ def check_for_new_findings(state_dir: Path, threshold: str = "critical") -> dict
     prev_sev = prev_fm.get("findings_by_severity") or {}
     curr_sev = curr_fm.get("findings_by_severity") or {}
 
-    # Newness comes from the saved baseline's per-finding diff_status,
-    # keyed to the current report by run_id (issue #13: count-deltas miss
-    # net-zero churn — one fixed + one new = delta 0 = missed alert).
+    # Per-severity count-delta from the two reports' frontmatter. Always
+    # computed: it catches severity *escalation* of an existing finding
+    # (info→critical on the same vuln stays diff_status=EXISTING, so the
+    # baseline-NEW count alone would miss it — a review follow-up to #13).
+    count_delta = {}
+    for sev in ALL_SEVERITIES:
+        delta = (curr_sev.get(sev, 0) or 0) - (prev_sev.get(sev, 0) or 0)
+        count_delta[sev] = max(0, delta)
+
+    # Newness primarily comes from the saved baseline's per-finding
+    # diff_status, keyed to the current report by run_id (issue #13:
+    # count-deltas miss net-zero churn — one fixed + one new = delta 0 =
+    # missed alert). We take the per-severity MAX of the two signals so
+    # neither failure mode (net-zero churn OR escalation) is missed; the
+    # count-delta is the sole source when no matching baseline exists.
     baseline = load_baseline(state_dir / "baselines" / "default.json")
     if baseline is not None and baseline.get("run_id") == curr_fm.get("run_id"):
-        new_findings = _new_findings_from_baseline(baseline)
+        baseline_new = _new_findings_from_baseline(baseline)
+        new_findings = {
+            sev: max(baseline_new.get(sev, 0), count_delta.get(sev, 0))
+            for sev in ALL_SEVERITIES
+        }
     else:
         log.warning(
-            "notify: no baseline matching run %s — falling back to "
-            "frontmatter count-delta", curr_fm.get("run_id"),
+            "notify: no baseline matching run %s (baseline run %r) — using "
+            "frontmatter count-delta only",
+            curr_fm.get("run_id"), (baseline or {}).get("run_id", "missing"),
         )
-        new_findings = {}
-        for sev in ALL_SEVERITIES:
-            delta = (curr_sev.get(sev, 0) or 0) - (prev_sev.get(sev, 0) or 0)
-            new_findings[sev] = max(0, delta)
+        new_findings = count_delta
 
     # Check if any delta at or above threshold is > 0
     threshold_rank = SEVERITY_RANK.get(threshold, 0)

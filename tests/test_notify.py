@@ -281,3 +281,25 @@ def test_webhook_report_path_respects_state_dir(tmp_state):
               "targets": [], "summary": "s"}
     payload = _build_webhook_payload(result, "critical", state_dir=tmp_state)
     assert payload["report_path"] == str(tmp_state / "reports" / "r1.md")
+
+
+def test_severity_escalation_triggers_even_when_baseline_says_existing(tmp_state):
+    """Review follow-up to #13: a finding whose severity escalates between
+    runs stays diff_status=EXISTING (same purl/vuln_id/manifest_path), so the
+    baseline-NEW count is 0 — but the report count-delta shows the new
+    critical bucket. The max() of both signals must still trigger."""
+    _write_report_min(tmp_state, "20260101T000000Z-aaaaaaaa",
+                      {"critical": 0, "high": 1})
+    _write_report_min(tmp_state, "20260102T000000Z-bbbbbbbb",
+                      {"critical": 1, "high": 0})
+    save_baseline(tmp_state / "baselines" / "default.json", {
+        "run_id": "20260102T000000Z-bbbbbbbb",
+        "findings": [
+            # Same identity as last run, only severity escalated → EXISTING.
+            {"purl": "pkg:npm/x@1", "vuln_id": "CVE-2026-1", "severity": "critical",
+             "manifest_path": "/x", "diff_status": "EXISTING", "status": "OK"},
+        ],
+    })
+    result = check_for_new_findings(tmp_state, threshold="critical")
+    assert result["triggered"] is True
+    assert result["new_findings"]["critical"] == 1
