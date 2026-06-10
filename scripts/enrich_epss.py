@@ -6,7 +6,7 @@ and percentile and attach them to the Finding.
 SCAN_ERROR records are skipped (they're status reports, not findings).
 Findings without a CVE (MAL-*, EOL-*, GHSA-only) are unchanged.
 """
-from scripts.lib.types import Finding, iter_vuln_ids
+from scripts.lib.types import Finding, iter_vuln_ids, is_status_record
 from scripts.lib.epss_client import EPSSClient
 from scripts.lib.logger import get_logger
 
@@ -23,7 +23,7 @@ def enrich_with_epss(
 ) -> list[Finding]:
     """Set epss_score and epss_percentile on findings with a CVE alias."""
     for f in findings:
-        if f.get("status") == "SCAN_ERROR":
+        if is_status_record(f):
             continue
         cve = _find_cve_id(f)
         if cve is None:
