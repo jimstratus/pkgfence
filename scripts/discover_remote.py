@@ -6,7 +6,7 @@ Uses only S3-allowlisted commands:
 
 Grouping parens are passed BARE — SSHRunner shlex-quotes every argument
 centrally before the remote shell sees it (issue #7).
-    sha256sum <path>
+    sha256sum <path1> <path2> ...   (manifests hashed in chunked batches, issue #19.2)
 
 Never retrieves manifest contents. Never writes anything. Path + hash only.
 """
