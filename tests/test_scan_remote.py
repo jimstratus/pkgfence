@@ -143,15 +143,47 @@ def test_scan_remote_manifest_parse_failure_becomes_scan_error():
     assert "invalid json" in findings[0]["description"]
 
 
+BATCH_OSV_JSON_FIXTURE = """
+{
+  "results": [
+    {
+      "source": {"path": "/var/www/app1/package-lock.json", "type": "lockfile"},
+      "packages": [
+        {
+          "package": {"name": "lodash", "version": "4.17.10", "ecosystem": "npm"},
+          "vulnerabilities": [
+            {"id": "GHSA-jf85-cpcp-j695", "summary": "Prototype Pollution",
+             "severity": [{"type": "CVSS_V3", "score": "7.4"}],
+             "aliases": ["CVE-2019-10744"]}
+          ]
+        }
+      ]
+    },
+    {
+      "source": {"path": "/var/www/app3/package-lock.json", "type": "lockfile"},
+      "packages": [
+        {
+          "package": {"name": "lodash", "version": "4.17.10", "ecosystem": "npm"},
+          "vulnerabilities": [
+            {"id": "GHSA-jf85-cpcp-j695", "summary": "Prototype Pollution",
+             "severity": [{"type": "CVSS_V3", "score": "7.4"}],
+             "aliases": ["CVE-2019-10744"]}
+          ]
+        }
+      ]
+    }
+  ]
+}
+"""
+
+
 def test_scan_remote_manifests_batch_preserves_order_and_isolates_errors():
-    """scan_remote_manifests concatenates findings from multiple manifests in
-    order. A SCAN_ERROR on one manifest does NOT prevent later manifests
-    from being scanned."""
+    """scan_remote_manifests runs ONE batched osv-scanner call for all scannable
+    manifests (#19.3) and maps results back via source.path. A pre-marked
+    SCAN_ERROR manifest passes through as a SCAN_ERROR Finding and is excluded
+    from the batch invocation."""
     runner = MagicMock()
-    runner.run.side_effect = [
-        OSV_JSON_FIXTURE,
-        OSV_JSON_FIXTURE,  # second good manifest
-    ]
+    runner.run.return_value = BATCH_OSV_JSON_FIXTURE
 
     manifests: list[RemoteManifest] = [
         {
@@ -163,7 +195,7 @@ def test_scan_remote_manifests_batch_preserves_order_and_isolates_errors():
             "tier": 2,
         },
         {
-            # Pre-marked SCAN_ERROR — never calls runner.run
+            # Pre-marked SCAN_ERROR — excluded from batch, passes through
             "target": "dev-host-1",
             "host": "dev-host-1.example",
             "path": "",
@@ -182,11 +214,49 @@ def test_scan_remote_manifests_batch_preserves_order_and_isolates_errors():
         },
     ]
     findings = scan_remote_manifests(manifests, runner)
-    # 1 real finding from manifest 1, 1 SCAN_ERROR from manifest 2, 1 real from manifest 3
+    # 1 SCAN_ERROR (passthrough) + 2 real findings from the batched scan
     assert len(findings) == 3
-    assert findings[0]["vuln_id"] == "GHSA-jf85-cpcp-j695"
-    assert findings[1]["vuln_id"] == "SCAN_ERROR"
-    assert "discovery failed" in findings[1]["description"]
-    assert findings[2]["vuln_id"] == "GHSA-jf85-cpcp-j695"
-    # Verify runner.run was called exactly twice (not for the SCAN_ERROR manifest)
-    assert runner.run.call_count == 2
+    vuln_ids = sorted(f["vuln_id"] for f in findings)
+    assert vuln_ids == ["GHSA-jf85-cpcp-j695", "GHSA-jf85-cpcp-j695", "SCAN_ERROR"]
+    scan_error = next(f for f in findings if f["vuln_id"] == "SCAN_ERROR")
+    assert "discovery failed" in scan_error["description"]
+    # Verify runner.run was called exactly ONCE (single batched invocation)
+    assert runner.run.call_count == 1
+    cmd = runner.run.call_args.args[0]
+    assert cmd.count("-L") == 2
+
+
+def test_batch_scan_single_invocation_with_repeated_L_flags():
+    runner = MagicMock()
+    runner.run.return_value = (
+        '{"results": ['
+        '{"source": {"path": "/a/package-lock.json"}, "packages": []},'
+        '{"source": {"path": "/b/package-lock.json"}, "packages": []}'
+        ']}'
+    )
+    manifests = [
+        {"target": "bespin", "host": "h", "path": "/a/package-lock.json",
+         "ecosystem": "npm", "manifest_hash": "", "tier": 1},
+        {"target": "bespin", "host": "h", "path": "/b/package-lock.json",
+         "ecosystem": "npm", "manifest_hash": "", "tier": 1},
+    ]
+    findings = scan_remote_manifests(manifests, runner)
+    assert runner.run.call_count == 1
+    cmd = runner.run.call_args.args[0]
+    assert cmd.count("-L") == 2
+    assert findings == []
+
+
+def test_batch_scan_falls_back_to_per_manifest_on_parse_error():
+    runner = MagicMock()
+    good = '{"results": []}'
+    runner.run.side_effect = ["NOT JSON", good, good]  # batch fails, 2 singles
+    manifests = [
+        {"target": "bespin", "host": "h", "path": "/a/package-lock.json",
+         "ecosystem": "npm", "manifest_hash": "", "tier": 1},
+        {"target": "bespin", "host": "h", "path": "/b/package-lock.json",
+         "ecosystem": "npm", "manifest_hash": "", "tier": 1},
+    ]
+    findings = scan_remote_manifests(manifests, runner)
+    assert runner.run.call_count == 3
+    assert findings == []  # per-manifest path succeeded; no SCAN_ERROR

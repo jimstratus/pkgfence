@@ -205,34 +205,41 @@ def parse_osv_output(raw_json: str, manifest_path: str, target: str) -> list[Fin
 
     findings: list[Finding] = []
     for result in data.get("results", []):
-        for pkg_entry in result.get("packages", []):
-            pkg = pkg_entry.get("package", {})
-            name = pkg.get("name", "")
-            version = pkg.get("version", "")
-            ecosystem = pkg.get("ecosystem", "").lower()
-            try:
-                purl = build_purl(ecosystem, name, version)
-            except Exception:
-                # Unknown ecosystem — fall back to a synthetic purl
-                purl = f"pkg:{ecosystem or 'unknown'}/{name}@{version}"
+        findings.extend(_findings_from_result(result, manifest_path, target))
+    return findings
 
-            for vuln in pkg_entry.get("vulnerabilities", []):
-                vuln_id = vuln.get("id", "UNKNOWN")
-                severity = _extract_severity(vuln.get("severity", []))
-                cvss_score = _extract_cvss_score(vuln.get("severity", []))
-                f = new_finding(
-                    purl=purl,
-                    vuln_id=vuln_id,
-                    severity=severity,
-                    manifest_path=manifest_path,
-                    target=target,
-                    description=vuln.get("summary", ""),
-                    aliases=vuln.get("aliases", []),
-                    scanner_source="osv-scanner",
-                )
-                if cvss_score is not None:
-                    f["cvss_score"] = cvss_score
-                findings.append(f)
+
+def _findings_from_result(result: dict, manifest_path: str, target: str) -> list[Finding]:
+    """Build Findings from one osv-scanner `results[]` entry (one source)."""
+    findings: list[Finding] = []
+    for pkg_entry in result.get("packages", []):
+        pkg = pkg_entry.get("package", {})
+        name = pkg.get("name", "")
+        version = pkg.get("version", "")
+        ecosystem = pkg.get("ecosystem", "").lower()
+        try:
+            purl = build_purl(ecosystem, name, version)
+        except Exception:
+            # Unknown ecosystem — fall back to a synthetic purl
+            purl = f"pkg:{ecosystem or 'unknown'}/{name}@{version}"
+
+        for vuln in pkg_entry.get("vulnerabilities", []):
+            vuln_id = vuln.get("id", "UNKNOWN")
+            severity = _extract_severity(vuln.get("severity", []))
+            cvss_score = _extract_cvss_score(vuln.get("severity", []))
+            f = new_finding(
+                purl=purl,
+                vuln_id=vuln_id,
+                severity=severity,
+                manifest_path=manifest_path,
+                target=target,
+                description=vuln.get("summary", ""),
+                aliases=vuln.get("aliases", []),
+                scanner_source="osv-scanner",
+            )
+            if cvss_score is not None:
+                f["cvss_score"] = cvss_score
+            findings.append(f)
     return findings
 
 
