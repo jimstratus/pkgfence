@@ -42,7 +42,7 @@ from scripts.lib.registry import load_registry, RegistryError
 from scripts.lib.remote_types import RemoteManifest
 from scripts.lib.config import load_defaults, DefaultsError
 from scripts.lib.exceptions import load_exceptions
-from scripts.lib.types import Finding
+from scripts.lib.types import Finding, SEVERITY_RANK, is_status_record
 from scripts.eol_detect import detect_eol_local, detect_eol_remote
 from scripts.installed_check import apply_installed_checks
 from scripts.lib.audit_log import append_audit_record
@@ -288,13 +288,10 @@ def run_scan(
     )
 
     # Exit code logic (computed before snapshot so it can be included in frontmatter)
-    fail_rank = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}.get(
-        fail_on, 0
-    )
-    sev_rank = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+    fail_rank = SEVERITY_RANK.get(fail_on, 0)
     has_failing = any(
-        sev_rank.get(f.get("severity", "medium"), 99) <= fail_rank
-        and f.get("status") != "SCAN_ERROR"
+        SEVERITY_RANK.get(f.get("severity", "medium"), 99) <= fail_rank
+        and not is_status_record(f)
         for f in findings
     )
     exit_code = 1 if has_failing else 0

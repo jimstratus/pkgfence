@@ -17,19 +17,11 @@ import httpx
 from ruamel.yaml import YAML
 
 from scripts.lib.baseline import load_baseline
-from scripts.lib.types import is_status_record
+from scripts.lib.types import SEVERITY_RANK, is_status_record
 
 log = logging.getLogger(__name__)
 
-SEVERITY_RANK: dict[str, int] = {
-    "critical": 0,
-    "high": 1,
-    "medium": 2,
-    "low": 3,
-    "info": 4,
-}
-
-ALL_SEVERITIES = ["critical", "high", "medium", "low", "info"]
+ALL_SEVERITIES = list(SEVERITY_RANK)
 
 
 def _new_findings_from_baseline(baseline: dict) -> dict[str, int]:

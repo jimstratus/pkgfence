@@ -11,6 +11,12 @@ Severity = Literal["critical", "high", "medium", "low", "info"]
 DiffStatus = Literal["NEW", "CHANGED", "EXISTING"]
 Status = Literal["OK", "SCAN_ERROR", "WAIVED"]
 
+# Single source of truth for severity ordering (issue #18). The --fail-on
+# gate, notify thresholds, and triage sort all rank through this dict.
+SEVERITY_RANK: dict[str, int] = {
+    "critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4,
+}
+
 
 class Finding(TypedDict, total=False):
     """A single vulnerability finding, normalized across scanners.

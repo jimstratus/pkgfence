@@ -1,5 +1,5 @@
 """Test the Finding TypedDict contract."""
-from scripts.lib.types import Finding, new_finding, is_status_record
+from scripts.lib.types import Finding, new_finding, is_status_record, SEVERITY_RANK
 
 
 def test_finding_accepts_installed_and_original_severity():
@@ -43,3 +43,10 @@ def test_is_status_record():
     assert is_status_record({"status": "SCAN_ERROR"})
     assert not is_status_record({"status": "OK"})
     assert not is_status_record({})
+
+
+def test_severity_rank_is_single_source_of_truth():
+    from scripts import triage, notify
+    assert triage.SEVERITY_RANK is SEVERITY_RANK
+    assert notify.SEVERITY_RANK is SEVERITY_RANK
+    assert list(SEVERITY_RANK) == ["critical", "high", "medium", "low", "info"]
