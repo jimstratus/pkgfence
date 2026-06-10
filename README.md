@@ -210,6 +210,7 @@ Phase 2 SSH support closed the loop on the second class. During tier-1 dogfood, 
 | [config/registry.example.yaml](config/registry.example.yaml) | Example registry configuration | User |
 | [references/workflows/scan-mode.md](references/workflows/scan-mode.md) | Local scan workflow details | User, Developer |
 | [references/workflows/ssh-mode.md](references/workflows/ssh-mode.md) | SSH mode workflow (ACL, sudo, publish setup) | User, Developer |
+| [references/workflows/open-source-release.md](references/workflows/open-source-release.md) | Safe private-to-public release workflow | Developer |
 | [references/scanners/osv-scanner.md](references/scanners/osv-scanner.md) | osv-scanner integration reference | Developer |
 | [references/threat-intel/](references/threat-intel/) | CISA KEV and OSV API threat intelligence docs | Developer |
 | [planning/plan.md](planning/plan.md) | Full roadmap (Phases 1-5) | Developer |
