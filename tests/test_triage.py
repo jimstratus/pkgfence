@@ -237,3 +237,9 @@ def test_exceptions_never_suppress_status_records():
                       "/x/package-lock.json", target="bespin", status="SCAN_ERROR")
     result = apply_exceptions([err], exceptions)
     assert result == [err]
+
+
+def test_mal_override_severity_is_configurable():
+    f = new_finding("pkg:npm/evil@1.0.0", "MAL-2026-1", "low", "/x")
+    apply_mal_override([f], override_severity="high")
+    assert f["severity"] == "high"

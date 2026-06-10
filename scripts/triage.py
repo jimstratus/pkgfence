@@ -26,20 +26,25 @@ def dedup_findings(findings: list[Finding]) -> list[Finding]:
     return result
 
 
-def apply_mal_override(findings: list[Finding]) -> list[Finding]:
+def apply_mal_override(
+    findings: list[Finding], override_severity: str = "critical"
+) -> list[Finding]:
     """Round 2 finding R2-9: MAL-* prefix indicates a malicious package
     record from OpenSSF Malicious Packages. Bypass severity triage and
     override to critical regardless of CVSS.
 
     Critic gap fix: check BOTH the primary id field AND the aliases[]
     array. Many findings have a primary GHSA id with the MAL-* in aliases.
+
+    Override severity comes from config/defaults.yaml triage.mal_prefix_override
+    (issue #14).
     """
     for f in findings:
         primary = f.get("vuln_id", "")
         aliases = f.get("aliases", [])
         all_ids = [primary] + list(aliases)
         if any(vid.startswith("MAL-") for vid in all_ids if vid):
-            f["severity"] = "critical"
+            f["severity"] = override_severity
             f["mal_flagged"] = True
             f["remediation"] = (
                 "Remove this package immediately — it is flagged as "

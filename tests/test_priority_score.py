@@ -1,7 +1,13 @@
 import pytest
+from unittest.mock import patch
 
 from scripts.lib.types import new_finding
-from scripts.lib.priority import compute_priority_score, _SEVERITY_MIDPOINTS
+from scripts.lib.priority import (
+    compute_priority_score,
+    apply_priority_scores,
+    _SEVERITY_MIDPOINTS,
+)
+from scripts.scan_command import run_scan
 
 
 def test_critical_with_kev_and_epss_scores_high():
@@ -75,3 +81,44 @@ def test_priority_score_in_unit_range():
     score = compute_priority_score(f)
     assert 0.0 <= score <= 1.0
     assert score == pytest.approx(1.0, abs=0.01)
+
+
+def test_weights_come_from_defaults_yaml_shape():
+    """Issue #14: changing a weight changes the score — no hardcoding."""
+    f = {"severity": "high", "cvss_score": 8.0, "epss_score": 0.5,
+         "actively_exploited": True}
+    default = compute_priority_score(f)
+    assert default == pytest.approx(0.4 * 0.8 + 0.3 * 0.5 + 0.3 * 1.0)
+    cvss_only = compute_priority_score(
+        f, weights={"weight_cvss": 1.0, "weight_epss": 0.0, "weight_kev": 0.0}
+    )
+    assert cvss_only == pytest.approx(0.8)
+
+
+def test_apply_priority_scores_runs_on_final_severity():
+    """Issue #11: a MAL-promoted finding must be scored as critical
+    (midpoint 9.5), not with its pre-override severity."""
+    mal = {"vuln_id": "MAL-2026-1", "severity": "critical",  # post-override
+           "aliases": [], "status": "OK"}
+    out = apply_priority_scores([mal], defaults={"triage": {}})
+    assert out[0]["priority_score"] == pytest.approx(0.4 * 0.95)
+
+
+def test_apply_priority_scores_skips_scan_error(tmp_path):
+    """Issue #15: status records get NO priority_score."""
+    err = {"vuln_id": "SCAN_ERROR", "severity": "info", "status": "SCAN_ERROR",
+           "priority_score": 0.04}  # stale score from an old baseline
+    out = apply_priority_scores([err], defaults=None)
+    assert "priority_score" not in out[0]
+
+
+def test_run_scan_threads_defaults_into_priority_stage(tmp_state, tmp_registry):
+    """Issue #14 end-to-end: run_scan must pass the LOADED defaults to the
+    priority stage — the original bug was load_defaults() discarding its
+    return value, which a unit test on apply_priority_scores can't catch."""
+    sentinel = {"triage": {"weight_cvss": 1.0, "weight_epss": 0.0, "weight_kev": 0.0}}
+    with patch("scripts.scan_command.apply_priority_scores",
+               side_effect=lambda fs, d: fs) as aps, \
+         patch("scripts.scan_command.load_defaults", return_value=sentinel):
+        run_scan(tmp_registry, tmp_state)
+    assert aps.call_args.args[1] == sentinel

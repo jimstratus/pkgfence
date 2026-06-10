@@ -14,7 +14,7 @@ from typing import Any
 
 from ruamel.yaml import YAML
 
-from scripts.lib.types import Finding
+from scripts.lib.types import Finding, is_status_record
 
 
 def _build_frontmatter(
@@ -142,7 +142,7 @@ def _render_finding_card(f: Finding) -> str:
     if f.get("remediation"):
         lines.append(f"- **Remediation:** {f['remediation']}")
     priority = f.get("priority_score")
-    if priority is not None:
+    if priority is not None and not is_status_record(f):
         cvss = f.get("cvss_score")
         epss = f.get("epss_score") or 0.0
         epss_pct = f.get("epss_percentile") or 0.0

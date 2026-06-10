@@ -27,7 +27,7 @@ from scripts.lib.ssh_runner import SSHRunner
 from scripts.enrich_threats import enrich_with_kev
 from scripts.lib.epss_client import EPSSClient
 from scripts.enrich_epss import enrich_with_epss
-from scripts.lib.priority import compute_priority_score
+from scripts.lib.priority import apply_priority_scores
 from scripts.triage import (
     dedup_findings,
     apply_mal_override,
@@ -117,7 +117,7 @@ def run_scan(
 
     # Layer 0: load config + registry
     try:
-        load_defaults()
+        defaults = load_defaults()
     except DefaultsError as e:
         print(f"Error loading defaults: {e}", file=sys.stderr)
         return 3, state_dir / "reports" / f"{run_id}-error.md"
@@ -237,14 +237,13 @@ def run_scan(
     elif epss.is_stale:
         degraded_modes.append("EPSS feed stale — refresh failed, serving cached data")
 
-    # Compute priority_score on every finding (after all enrichment, before triage)
-    for f in findings:
-        f["priority_score"] = compute_priority_score(f)
-
     # Layer 4: Triage
     log.info("L4 triage starting")
     findings = dedup_findings(findings)
-    findings = apply_mal_override(findings)
+    triage_cfg = (defaults.get("triage") or {})
+    findings = apply_mal_override(
+        findings, override_severity=triage_cfg.get("mal_prefix_override", "critical")
+    )
 
     exceptions_path = state_dir / "exceptions.yaml"
     exceptions = load_exceptions(exceptions_path)
@@ -262,6 +261,10 @@ def run_scan(
         local_manifest_paths={m["path"] for m in manifests},
         remote_runners=target_runners,
     )
+
+    # Priority scoring is the FINAL enrichment stage: it must see post-
+    # override, post-demotion severities (issue #11).
+    findings = apply_priority_scores(findings, defaults)
 
     findings = sort_findings(findings)
 

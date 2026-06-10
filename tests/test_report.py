@@ -4,7 +4,7 @@ from io import StringIO
 from ruamel.yaml import YAML
 
 from scripts.lib.types import new_finding
-from scripts.report import render_markdown_report
+from scripts.report import render_markdown_report, _render_finding_card
 
 
 def test_render_markdown_report_basic_structure():
@@ -352,6 +352,14 @@ def test_frontmatter_includes_epss_feed_timestamp():
     report = render_markdown_report([], snapshot, [])
     assert "epss_feed_timestamp" in report
     assert "2026-04-11" in report
+
+
+def test_scan_error_card_has_no_priority_line():
+    err = {"vuln_id": "SCAN_ERROR", "severity": "info", "status": "SCAN_ERROR",
+           "purl": "pkg:scan-error/bespin@-", "manifest_path": "/x",
+           "target": "bespin", "priority_score": 0.04}
+    card = _render_finding_card(err)
+    assert "Priority:" not in card
 
 
 def test_frontmatter_severity_keys_in_severity_rank_order():
