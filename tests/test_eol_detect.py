@@ -1,7 +1,8 @@
 """Tests for EOL software detection via curated catalog."""
 import pytest
 from pathlib import Path
-from scripts.eol_detect import load_eol_catalog, detect_eol_local, detect_eol_remote
+from unittest.mock import MagicMock
+from scripts.eol_detect import load_eol_catalog, detect_eol_local, detect_eol_remote, _is_safe_remote_version_path
 from scripts.lib.ssh_runner import SSHRunner, SSHUnreachableError
 
 
@@ -89,4 +90,37 @@ def test_detect_eol_remote_ssh_error(mocker):
         target_name="down-host",
         target_host="10.0.0.2",
     )
+    assert findings == []
+
+
+def test_remote_version_path_must_stay_under_discover_paths():
+    assert _is_safe_remote_version_path("/var/www/site/conf/VERSION", ["/var/www"])
+    assert not _is_safe_remote_version_path("/etc/passwd", ["/var/www"])
+    assert not _is_safe_remote_version_path("/var/www/../../etc/shadow", ["/var/www"])
+    assert not _is_safe_remote_version_path("relative/conf/VERSION", ["/var/www"])
+    assert not _is_safe_remote_version_path("/var/www2/x", ["/var/www"])  # prefix trick
+
+
+def test_remote_eol_skips_escaping_find_lines():
+    """A hostile remote emitting a find line that resolves outside
+    discover_paths must never be cat'd (S4 exfil containment)."""
+    runner = MagicMock()
+    runner.run.return_value = "/var/www/../../etc/wp-includes/version.php\n"
+    findings = detect_eol_remote(["/var/www"], runner, "bespin", "bespin.example")
+    assert findings == []
+    # only the find call happened — no cat of the escaping path
+    verbs = [c.args[0][0] for c in runner.run.call_args_list]
+    assert verbs == ["find"]
+
+
+def test_remote_eol_rejects_non_version_content():
+    """When version_regex is null, raw file content becomes the version
+    string — it must look like a version token, not arbitrary file
+    contents (S4a exfil containment)."""
+    runner = MagicMock()
+    runner.run.side_effect = [
+        "/var/www/pydio/base.conf.php\n",          # find
+        "root:x:0:0:root:/root:/bin/bash\nsecret\n",  # cat — NOT a version
+    ]
+    findings = detect_eol_remote(["/var/www"], runner, "bespin", "bespin.example")
     assert findings == []

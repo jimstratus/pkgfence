@@ -7,7 +7,7 @@ do NOT add DEFAULT_EXCLUDES here.
 import logging
 import os
 import re
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from ruamel.yaml import YAML
@@ -161,6 +161,25 @@ def _build_eol_find_command(
     return cmd
 
 
+# A version string is a short token like "9.0.0" / "6.4.2-alpha1" — never a
+# multi-line blob. Caps the S4a exfil channel: at most one version-shaped
+# token can transit, not arbitrary file contents.
+_VERSION_RE = re.compile(r"[0-9A-Za-z._+~-]{1,64}")
+
+
+def _is_safe_remote_version_path(version_path: str, discover_paths: list[str]) -> bool:
+    """True only if version_path is absolute, has no traversal segments,
+    and sits under one of the configured discover_paths. find-derived
+    directories are remote-controlled input — never cat outside the roots
+    we were told to scan (issue #8)."""
+    p = PurePosixPath(version_path)
+    if not p.is_absolute():
+        return False
+    if ".." in p.parts:  # pathlib strips "." segments; ".." survives
+        return False
+    return any(p.is_relative_to(PurePosixPath(root)) for root in discover_paths)
+
+
 def detect_eol_remote(
     discover_paths: list[str],
     runner: SSHRunner,
@@ -173,9 +192,13 @@ def detect_eol_remote(
     reads each matched installation's version_file via `cat`. Version strings
     are compared against eol_before to emit Findings.
 
-    S4 scoped exception: cat is used to read version files derived solely from
-    catalog-defined version_file patterns — never from user input or discovery
-    output. Task 10 adds the safety test for this boundary.
+    S4 scoped exception (S4a): cat reads version files whose directory comes
+    from remote `find` output. That path is therefore remote-controlled, so it
+    is validated to stay under discover_paths, and the extracted version must
+    match a strict version-token pattern before it is used. Residual risk: the
+    containment is lexical — a symlink under discover_paths can still point
+    elsewhere — but the version-token cap bounds what can transit to one short
+    token, not file contents. See issue #8.
 
     Args:
         discover_paths: Remote paths to search (e.g. ["/var/www"]).
@@ -242,6 +265,13 @@ def detect_eol_remote(
 
             version_path = install_root.rstrip("/") + "/" + version_file
 
+            if not _is_safe_remote_version_path(version_path, discover_paths):
+                log.warning(
+                    "EOL remote scan: refusing to read %s on %s (outside discover_paths)",
+                    version_path, target_name,
+                )
+                continue
+
             try:
                 cat_output = runner.run(["cat", version_path])
             except SSHUnreachableError as e:
@@ -259,9 +289,15 @@ def detect_eol_remote(
                     continue  # malformed — skip silently
                 version = m.group(1).strip()
             else:
-                version = cat_output.strip()
-
-            if not version:
+                # Plain version file — take only the FIRST line, and only
+                # if it looks like a version token (S4a containment).
+                first_line = cat_output.strip().splitlines()[0].strip()
+                version = first_line
+            if not version or not _VERSION_RE.fullmatch(version):
+                log.warning(
+                    "EOL remote scan: %s on %s did not yield a version-shaped "
+                    "string; skipping", version_path, target_name,
+                )
                 continue
 
             eol_before = entry.get("eol_before")
