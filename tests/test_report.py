@@ -331,7 +331,7 @@ def test_report_priority_line_with_no_epss():
     f["priority_score"] = 0.32
     report = render_markdown_report([f], {"scanner_version": "2.3.3"}, [])
     assert "Priority" in report
-    assert "EPSS=0.00" in report
+    assert "EPSS=n/a" in report  # no epss_score key → absent, not measured 0.0
     assert "KEV=false" in report
 
 
@@ -394,3 +394,23 @@ def test_frontmatter_severity_keys_in_severity_rank_order():
     assert indices == sorted(indices), (
         f"severity keys not in rank order: {list(zip(keys_in_order, indices))}"
     )
+
+
+def test_priority_line_shows_raw_cvss_not_normalized():
+    f = {"vuln_id": "CVE-2024-1", "severity": "critical", "purl": "pkg:npm/x@1",
+         "manifest_path": "/x", "target": "t", "priority_score": 0.69,
+         "cvss_score": 9.8, "epss_score": 0.5, "epss_percentile": 0.9}
+    card = _render_finding_card(f)
+    assert "CVSS=9.8" in card
+    assert "CVSS=0.98" not in card
+
+
+def test_priority_line_distinguishes_epss_zero_from_absent():
+    base = {"vuln_id": "CVE-2024-1", "severity": "high", "purl": "pkg:npm/x@1",
+            "manifest_path": "/x", "target": "t", "priority_score": 0.3,
+            "cvss_score": 7.0}
+    absent = _render_finding_card(dict(base))
+    assert "EPSS=n/a" in absent
+    zero = _render_finding_card(
+        dict(base, epss_score=0.0, epss_percentile=0.01))
+    assert "EPSS=0.00 (p1)" in zero

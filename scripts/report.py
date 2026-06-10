@@ -144,14 +144,16 @@ def _render_finding_card(f: Finding) -> str:
     priority = f.get("priority_score")
     if priority is not None and not is_status_record(f):
         cvss = f.get("cvss_score")
-        epss = f.get("epss_score") or 0.0
-        epss_pct = f.get("epss_percentile") or 0.0
+        epss_score = f.get("epss_score")
         kev = "true" if f.get("actively_exploited") else "false"
-        cvss_part = f"CVSS={cvss/10.0:.2f}" if cvss is not None else "CVSS=fallback"
-        if epss > 0:
-            epss_part = f"EPSS={epss:.2f} (p{epss_pct*100:.0f})"
+        # Raw 0-10 base score, NOT the normalized contribution (issue #16:
+        # a 9.8 critical previously rendered as "CVSS=0.98").
+        cvss_part = f"CVSS={cvss:.1f}" if cvss is not None else "CVSS=fallback"
+        if epss_score is None:
+            epss_part = "EPSS=n/a"  # no data ≠ measured 0.0
         else:
-            epss_part = "EPSS=0.00"
+            epss_pct = f.get("epss_percentile") or 0.0
+            epss_part = f"EPSS={epss_score:.2f} (p{epss_pct*100:.0f})"
         lines.append(
             f"- **Priority:** {priority:.2f} ({cvss_part}, {epss_part}, KEV={kev})"
         )
