@@ -15,7 +15,7 @@ from scripts.lib.logger import get_logger
 
 log = get_logger(__name__)
 
-EPSS_URL = "https://epss.cyentia.com/epss_scores-current.csv.gz"
+EPSS_URL = "https://epss.empiricalsecurity.com/epss_scores-current.csv.gz"
 DEFAULT_TTL_SECONDS = 24 * 60 * 60  # 24h
 
 
@@ -39,7 +39,7 @@ class EPSSClient:
         loaded_from_network = False
         if not self._is_cache_fresh():
             try:
-                with httpx.Client(timeout=60.0) as client:
+                with httpx.Client(timeout=60.0, follow_redirects=True) as client:
                     resp = client.get(EPSS_URL)
                 if resp.status_code == 200:
                     self.cache_path.write_bytes(resp.content)

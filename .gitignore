@@ -37,3 +37,6 @@ logs/
 
 # OMC plugin runtime state (Claude Code plugin, not part of pkgfence)
 .omc/
+
+# CodeGraph local cache (Kilo / Codex tooling, not part of pkgfence)
+.codegraph/

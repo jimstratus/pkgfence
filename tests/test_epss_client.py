@@ -97,3 +97,31 @@ def test_feed_timestamp_returned_after_refresh(tmp_path, mocker):
 def test_feed_timestamp_none_when_no_cache(tmp_path):
     client = EPSSClient(cache_dir=tmp_path / "epss")
     assert client.feed_timestamp is None
+
+
+def test_refresh_uses_httpx_client_with_follow_redirects(tmp_path, mocker):
+    cache_dir = tmp_path / "epss"
+    blob = _make_epss_csv_gz()
+    mock_resp = mocker.MagicMock(status_code=200, content=blob)
+    mock_get = mocker.patch(
+        "scripts.lib.epss_client.httpx.Client.get", return_value=mock_resp
+    )
+
+    client_kwargs: dict = {}
+    real_client = mocker.MagicMock()
+    real_client.__enter__ = mocker.MagicMock(return_value=real_client)
+    real_client.__exit__ = mocker.MagicMock(return_value=False)
+    real_client.get = mock_get
+
+    def _factory(*args, **kwargs):
+        client_kwargs.update(kwargs)
+        return real_client
+
+    mocker.patch("scripts.lib.epss_client.httpx.Client", side_effect=_factory)
+
+    client = EPSSClient(cache_dir=cache_dir)
+    client.refresh()
+
+    assert client_kwargs.get("follow_redirects") is True
+    assert client.lookup("CVE-2024-12345") == (0.95432, 0.99876)
+    assert client.is_degraded is False
