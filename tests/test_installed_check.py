@@ -1,5 +1,3 @@
-import pytest
-from pathlib import Path
 from unittest.mock import MagicMock
 from scripts.lib.types import new_finding
 from scripts.installed_check import (

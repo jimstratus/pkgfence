@@ -189,6 +189,7 @@ See `scripts/lib/SAFETY_INVARIANTS.md` for the full documentation.
 | [config/registry.example.yaml](config/registry.example.yaml) | Example registry configuration |
 | [references/workflows/scan-mode.md](references/workflows/scan-mode.md) | Local scan workflow details |
 | [references/workflows/ssh-mode.md](references/workflows/ssh-mode.md) | SSH mode workflow (ACL, sudo, publish) |
+| [references/workflows/open-source-release.md](references/workflows/open-source-release.md) | Safe private-to-public release workflow |
 | [references/scanners/osv-scanner.md](references/scanners/osv-scanner.md) | osv-scanner integration reference |
 | [references/threat-intel/](references/threat-intel/) | CISA KEV, OSV API threat intelligence docs |
 

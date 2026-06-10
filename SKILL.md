@@ -16,11 +16,14 @@ description: |
   secrets scanning (use Gitleaks), or anything outside dependency /
   supply chain scope.
 
-  Phase 2 (current, v0.2.0): scans local registry roots AND remote SSH
-  targets (Pattern B — osv-scanner runs on the remote, only JSON transits
-  locally). Reports include YAML frontmatter for machine parsing and can
-  be auto-published to a central scp sink. GitHub orgs, watch mode, audit
-  mode, and the fix-recommendation pipeline are deferred to later phases.
+  Phase 3a (current, v0.3.0): EPSS enrichment + Triple-Score ranking.
+  Scans local registry roots AND remote SSH targets (Pattern B —
+  osv-scanner runs on the remote, only JSON transits locally). Reports
+  include YAML frontmatter for machine parsing and can be auto-published
+  to a central scp sink. EPSS adds exploit-likelihood signals (FIRST.org
+  Exploit Prediction Scoring System). Triple-score = 0.4*CVSS + 0.3*EPSS
+  + 0.3*KEV. GitHub orgs, watch mode, audit mode, behavioral heuristics,
+  and the fix-recommendation pipeline are deferred to later phases.
 allowed-tools: Read, Grep, Glob, Bash, WebFetch, Task
 license: LICENSE
 ---
@@ -62,14 +65,15 @@ ships scan mode for local registry roots.
    - `2` = scanner error
    - `3` = configuration / registry error
 
-## Architecture (5 layers)
+## Architecture (6 layers)
 
 ```
 L5: Fix Recommendation Pipeline (DEFERRED to Phase 4)
 L4: Triage     — dedup, MAL-* override, expiring exceptions, sort, exclusions
-L3: Enrichment — CISA KEV actively_exploited overlay
+L3: Enrichment — CISA KEV actively_exploited overlay + EPSS exploit-likelihood
+L3.5: EPSS Enrichment — FIRST.org EPSS score + percentile (24h cache)
 L2: Scanner    — osv-scanner v2 primary, OSV API fallback
-L1: Discovery  — walk registry roots (Phase 1: local only)
+L1: Discovery  — walk registry roots (local + SSH remote)
 ```
 
 Read [`references/workflows/scan-mode.md`](references/workflows/scan-mode.md)
@@ -93,6 +97,8 @@ See [`scripts/lib/SAFETY_INVARIANTS.md`](scripts/lib/SAFETY_INVARIANTS.md).
   pip install, cargo install, etc.) — pkgfence reads lockfiles only
 - **S3**: SSH command allowlist — only find/cat/sha256sum/ls/stat/scanner
   binaries can run on remote hosts (Phase 2+ wires this)
+- **S4**: No remote file content exfiltration — only paths, hashes, scanner
+  JSON transit over the network
 
 ## What pkgfence does NOT do
 
@@ -100,6 +106,6 @@ See [`scripts/lib/SAFETY_INVARIANTS.md`](scripts/lib/SAFETY_INVARIANTS.md).
 - Secrets scanning (use Gitleaks or TruffleHog)
 - Modify your project files (no auto-fix, no git commits, no PRs)
 - Run package-manager install commands (S2 invariant)
-- Anything in Phase 3+ (GitHub orgs, watch mode, audit mode, fix
-  recommendations, behavioral heuristics, EPSS/GHSA/Scorecard enrichment)
+- Anything in Phase 3b+ (GitHub orgs, watch mode, audit mode, fix
+  recommendations, GHSA/Scorecard/behavioural heuristics)
   — see `planning/plan.md` for the roadmap.

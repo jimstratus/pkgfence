@@ -111,6 +111,7 @@ Output formats: Markdown (with YAML frontmatter), SARIF 2.1.0, JSONL audit log.
 
 - [README.md](README.md) — user-facing overview and quick start
 - [DEVELOPMENT.md](DEVELOPMENT.md) — developer environment and workflow
+- [references/workflows/open-source-release.md](references/workflows/open-source-release.md) — safe private-to-public release workflow
 - [SKILL.md](SKILL.md) — Claude Code skill definition
 - [CHANGELOG.md](CHANGELOG.md) — release history
 - [AGENTS.md](AGENTS.md) — AI agent navigation and conventions

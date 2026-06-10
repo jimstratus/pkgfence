@@ -32,6 +32,9 @@ class FeedCacheClient:
     FEED_URL: str = ""
     CACHE_FILENAME: str = ""
     TIMEOUT: float = 30.0
+    # Feed hosts may 301/302 to a canonical or dated URL; follow a bounded
+    # chain. Subclasses pin the acceptable final host via _validate_response.
+    MAX_REDIRECTS: int = 3
 
     def __init__(self, cache_dir: Path, ttl_seconds: int = DEFAULT_TTL_SECONDS):
         self.cache_dir = Path(cache_dir)
@@ -66,9 +69,16 @@ class FeedCacheClient:
                 f"{self.cache_path.suffix}.{os.getpid()}.tmp"
             )
             try:
-                with httpx.Client(timeout=self.TIMEOUT) as client:
+                with httpx.Client(
+                    timeout=self.TIMEOUT,
+                    follow_redirects=True,
+                    max_redirects=self.MAX_REDIRECTS,
+                ) as client:
                     resp = client.get(self.FEED_URL)
                 if resp.status_code == 200:
+                    # Reject a post-redirect landing host the subclass doesn't
+                    # trust (hostile redirect chain / compromised origin, #3).
+                    self._validate_response(resp)
                     tmp_path.write_bytes(resp.content)
                     self._parse(tmp_path)  # validate BEFORE publishing
                     # Serialize the publish so a concurrent run can't read a
@@ -109,6 +119,12 @@ class FeedCacheClient:
         if not self._loaded and not self.is_degraded:
             self.refresh()
         return self._loaded
+
+    def _validate_response(self, response: "httpx.Response") -> None:
+        """Hook: reject an untrusted post-redirect response. Default no-op
+        (the feed's own host is trusted). Subclasses that follow redirects
+        to a different host override this to pin an allowlist (#3). Raise
+        httpx.HTTPError to mark the fetch failed/degraded."""
 
     def _parse(self, path: Path) -> None:
         raise NotImplementedError

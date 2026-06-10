@@ -1,16 +1,28 @@
 """EPSS (Exploit Prediction Scoring System) client.
 
 Feed lifecycle (TTL cache, atomic publish, degrade-once) lives in
-FeedCacheClient. This class only knows the EPSS URL and CSV shape.
+FeedCacheClient. This class only knows the EPSS URL, the CSV shape, and
+which redirect-target hosts are trustworthy.
 """
 import csv
 import datetime
 import gzip
 from pathlib import Path
 
-from scripts.lib.feed_cache import FeedCacheClient, DEFAULT_TTL_SECONDS
+import httpx
 
-EPSS_URL = "https://epss.cyentia.com/epss_scores-current.csv.gz"
+from scripts.lib.feed_cache import FeedCacheClient, DEFAULT_TTL_SECONDS
+from scripts.lib.logger import get_logger
+
+log = get_logger(__name__)
+
+EPSS_URL = "https://epss.empiricalsecurity.com/epss_scores-current.csv.gz"
+
+# The empiricalsecurity.com host 302-redirects to dated CSV files on the same
+# origin (e.g. epss_scores-2026-06-09.csv.gz). FeedCacheClient follows the
+# redirect; we pin the final host to this allowlist to defend against a
+# compromised origin or a hostile redirect chain to an attacker host (#3).
+EPSS_ALLOWED_HOSTS = frozenset({"epss.empiricalsecurity.com"})
 
 
 class EPSSClient(FeedCacheClient):
@@ -21,6 +33,23 @@ class EPSSClient(FeedCacheClient):
     def __init__(self, cache_dir: Path, ttl_seconds: int = DEFAULT_TTL_SECONDS):
         super().__init__(cache_dir, ttl_seconds)
         self._scores: dict[str, tuple[float, float]] = {}
+
+    def _validate_response(self, response: httpx.Response) -> None:
+        """Reject a response whose post-redirect final URL left the EPSS host
+        allowlist or dropped HTTPS — a compromised origin or hostile redirect
+        chain (#3). Raises httpx.HTTPError, which FeedCacheClient.refresh()
+        treats as a fetch failure (degraded/stale, never a poisoned cache)."""
+        url = response.url
+        host = getattr(url, "host", None)
+        scheme = getattr(url, "scheme", None)
+        if host not in EPSS_ALLOWED_HOSTS or (
+            isinstance(scheme, str) and scheme.lower() != "https"
+        ):
+            log.warning(
+                "EPSS feed landed on disallowed URL %s (host=%s scheme=%s)",
+                url, host, scheme,
+            )
+            raise httpx.HTTPError(f"EPSS feed redirected to disallowed URL: {url}")
 
     def _parse(self, path: Path) -> None:
         """Stream-parse the gzipped CSV (never the whole blob in memory).
