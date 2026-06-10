@@ -10,8 +10,7 @@ import re
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from ruamel.yaml import YAML
-
+from scripts.lib.config import load_yaml
 from scripts.lib.ssh_runner import SSHRunner, SSHUnreachableError
 from scripts.lib.types import Finding, new_finding
 
@@ -20,13 +19,13 @@ log = logging.getLogger(__name__)
 SKILL_ROOT = Path(__file__).parent.parent
 EOL_CATALOG_PATH = SKILL_ROOT / "config" / "eol-catalog.yaml"
 
-_yaml = YAML(typ="rt")
-
 
 def load_eol_catalog() -> list[dict[str, Any]]:
-    """Load the EOL software catalog from config/eol-catalog.yaml."""
-    data = _yaml.load(EOL_CATALOG_PATH.read_text(encoding="utf-8"))
-    return list(data)
+    """Load the EOL software catalog from config/eol-catalog.yaml.
+
+    The catalog is read-only (never round-tripped back to disk), so the
+    shared safe loader is the single source of truth (issue #18.4)."""
+    return list(load_yaml(EOL_CATALOG_PATH) or [])
 
 
 def _parse_version(version_str: str) -> tuple[int, ...]:

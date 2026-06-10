@@ -4,7 +4,6 @@ from unittest.mock import MagicMock
 from scripts.lib.types import new_finding
 from scripts.installed_check import (
     check_installed_local,
-    check_installed_remote,
     check_installed_remote_batch,
     apply_installed_demotion,
     apply_installed_checks,
@@ -67,39 +66,25 @@ def test_pip_finding_skipped():
     assert "installed" not in result
 
 
-def test_remote_npm_installed_true(mocker):
-    mock_runner = mocker.MagicMock(spec=SSHRunner)
-    mock_runner.run_with_rc.return_value = ("/var/www/node_modules/lodash\n", 0)
-    f = new_finding(purl="pkg:npm/lodash@4.17.21", vuln_id="GHSA-1",
-                    severity="high", manifest_path="/var/www/package-lock.json", target="mars")
-    result = check_installed_remote(f, mock_runner)
-    assert result["installed"] is True
-
-
-def test_remote_npm_installed_false(mocker):
-    mock_runner = mocker.MagicMock(spec=SSHRunner)
-    mock_runner.run_with_rc.return_value = ("", 1)
-    f = new_finding(purl="pkg:npm/lodash@4.17.21", vuln_id="GHSA-1",
-                    severity="high", manifest_path="/var/www/package-lock.json", target="mars")
-    result = check_installed_remote(f, mock_runner)
-    assert result["installed"] is False
-
-
-def test_remote_ssh_error_does_not_set_installed(mocker):
+def test_remote_batch_ssh_error_does_not_set_installed(mocker):
+    """SSHUnreachableError during the batch ls -d leaves findings unchanged
+    (unknown state — never demote on no evidence)."""
     mock_runner = mocker.MagicMock(spec=SSHRunner)
     mock_runner.run_with_rc.side_effect = SSHUnreachableError("unreachable")
     f = new_finding(purl="pkg:npm/lodash@4.17.21", vuln_id="GHSA-1",
                     severity="high", manifest_path="/var/www/package-lock.json", target="mars")
-    result = check_installed_remote(f, mock_runner)
-    assert "installed" not in result
+    check_installed_remote_batch([f], mock_runner)
+    assert "installed" not in f
 
 
-def test_remote_pip_skipped(mocker):
+def test_remote_batch_pip_not_queried(mocker):
+    """Unsupported ecosystems (pip, etc.) have no install path, so the batch
+    never queries them and never sets installed."""
     mock_runner = mocker.MagicMock(spec=SSHRunner)
     f = new_finding(purl="pkg:pypi/requests@2.28", vuln_id="GHSA-4",
                     severity="medium", manifest_path="/var/www/requirements.txt", target="mars")
-    result = check_installed_remote(f, mock_runner)
-    assert "installed" not in result
+    check_installed_remote_batch([f], mock_runner)
+    assert "installed" not in f
     mock_runner.run_with_rc.assert_not_called()
 
 

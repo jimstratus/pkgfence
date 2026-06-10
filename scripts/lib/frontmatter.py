@@ -9,7 +9,7 @@ from ruamel.yaml import YAML
 
 
 def build_frontmatter(data: dict[str, Any]) -> str:
-    """Render data as a ----delimited YAML block. Uses the round-trip
+    """Render data as a `---`-delimited YAML block. Uses the round-trip
     dumper to preserve key insertion order (CLAUDE.md YAML gotcha)."""
     yaml = YAML(typ="rt")
     yaml.default_flow_style = False
