@@ -7,7 +7,7 @@ Phase 1 scope (this file is built up across Tasks 10.1-10.5):
 - 10.4: deterministic sort
 - 10.5: hardcoded exclusions list
 """
-from scripts.lib.types import Finding, is_status_record, SEVERITY_RANK
+from scripts.lib.types import Finding, is_status_record, SEVERITY_RANK, iter_vuln_ids
 
 
 def dedup_findings(findings: list[Finding]) -> list[Finding]:
@@ -40,10 +40,7 @@ def apply_mal_override(
     (issue #14).
     """
     for f in findings:
-        primary = f.get("vuln_id", "")
-        aliases = f.get("aliases", [])
-        all_ids = [primary] + list(aliases)
-        if any(vid.startswith("MAL-") for vid in all_ids if vid):
+        if any(vid.startswith("MAL-") for vid in iter_vuln_ids(f)):
             f["severity"] = override_severity
             f["mal_flagged"] = True
             f["remediation"] = (
