@@ -44,11 +44,7 @@ from scripts.lib.config import load_defaults, DefaultsError
 from scripts.lib.exceptions import load_exceptions
 from scripts.lib.types import Finding
 from scripts.eol_detect import detect_eol_local, detect_eol_remote
-from scripts.installed_check import (
-    apply_installed_checks_local,
-    check_installed_remote,
-    apply_installed_demotion,
-)
+from scripts.installed_check import apply_installed_checks
 from scripts.lib.audit_log import append_audit_record
 from scripts.lib.sarif import findings_to_sarif
 from scripts.lib.logger import get_logger
@@ -217,16 +213,6 @@ def run_scan(
         )
     log.info("L2 total findings (local + remote): %d", len(findings))
 
-    # Remote is-installed checks (per SSH target)
-    for target in filtered_ssh:
-        target_findings = [
-            f for f in findings
-            if f.get("target") == target["name"] and f.get("status") != "SCAN_ERROR"
-        ]
-        for f in target_findings:
-            check_installed_remote(f, target_runners[target["name"]])
-            apply_installed_demotion(f)
-
     # Merge EOL findings before L3 so they flow through enrichment + triage
     findings.extend(eol_findings_local)
     findings.extend(eol_findings_remote)
@@ -267,8 +253,15 @@ def run_scan(
     exclusions_cfg = _load_exclusions_config(DEFAULT_EXCLUSIONS_PATH)
     findings = apply_exclusions(findings, exclusions_cfg)
 
-    local_manifest_paths = {m["path"] for m in manifests}
-    findings = apply_installed_checks_local(findings, local_manifest_paths)
+    # Unified installed-check stage (issue #20): one pipeline position for
+    # local and remote. Runs AFTER exclusions so not-installed demotions
+    # stay visible in the report (the shipped severity floor drops info),
+    # and BEFORE priority scoring so scores reflect demoted severities.
+    findings = apply_installed_checks(
+        findings,
+        local_manifest_paths={m["path"] for m in manifests},
+        remote_runners=target_runners,
+    )
 
     findings = sort_findings(findings)
 

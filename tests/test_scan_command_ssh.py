@@ -42,9 +42,11 @@ def test_run_scan_with_ssh_target_includes_remote_findings(tmp_path, tmp_state):
         raise AssertionError(f"unexpected command: {command}")
 
     def fake_ssh_run_with_rc(self, command):
-        # stat for is-installed check: simulate package is installed (rc=0)
-        if command[0] == "stat":
-            return ("", 0)
+        # ls -d for the batched is-installed check (issue #19.1): echo back
+        # the queried install paths so every package reads as installed.
+        if command[:2] == ["ls", "-d"]:
+            paths = command[2:]
+            return ("\n".join(paths) + "\n", 0)
         raise AssertionError(f"unexpected run_with_rc command: {command}")
 
     with patch("scripts.lib.ssh_runner.SSHRunner.run", new=fake_ssh_run), \
