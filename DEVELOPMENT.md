@@ -74,7 +74,7 @@ pkgfence/
 │       ├── audit_log.py      # Per-run JSONL writer
 │       ├── ssh_runner.py     # SSH command runner
 │       └── registry.py       # Registry load/validate/atomic-write
-├── tests/                    # 179 pytest tests
+├── tests/                    # 341 pytest tests
 │   ├── conftest.py           # Shared tmp_state, tmp_registry fixtures
 │   ├── fixtures/             # npm + Python test projects (vulnerable/clean/corrupted)
 │   ├── test_safety_invariants.py       # S1/S2/S3 enforcement
@@ -116,7 +116,7 @@ python -m scripts.scan_command --registry state/registry.yaml
 ## Testing
 
 ```bash
-# Run all 179 tests
+# Run all 341 tests
 python -m pytest -v
 
 # With coverage
@@ -173,7 +173,7 @@ See `scripts/lib/SAFETY_INVARIANTS.md` for the full documentation.
 
 - Branch from `main` for features and fixes
 - Keep commits focused and atomic
-- Run `pytest` (all 179 tests) before every commit
+- Run `pytest` (all 341 tests) before every commit
 - Large changes should be discussed in an issue first
 
 ## Documentation

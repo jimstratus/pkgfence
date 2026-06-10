@@ -4,41 +4,57 @@ Multi-codebase dependency and supply-chain vulnerability scanner, delivered as a
 
 Scans local repositories and remote SSH targets for known CVEs (via osv-scanner v2 or OSV API fallback), malicious packages (via OpenSSF Malicious Packages `MAL-*` overlays), and behavioral red flags. Produces ranked, triaged reports with copy-pasteable remediation. Calibrated-trust disclaimers and per-finding cards make it explicit what was scanned and what wasn't.
 
-**Status: 🟢 Phase 2 (SSH-first + publish) — IMPLEMENTED.** Local + remote SSH scanning with auto-publish to a central sink.
+**Status: 🟢 v0.3.0 — Phase 3a (EPSS + triple-score ranking), hardened.** Local + remote SSH scanning, triple-signal risk ranking, auto-publish, and the #7–#20 security/correctness hardening pass.
 
-## What works today (Phase 2)
+> **Architecture:** see **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** for the full
+> pipeline, data-flow, feed-cache, and safety-boundary diagrams.
 
-- `pkgfence scan` mode against local registry roots AND remote SSH targets
+## Architecture at a glance
+
+```mermaid
+flowchart LR
+    L1[L1 Discovery<br/>local + ssh + EOL] --> L2[L2 Scan<br/>osv-scanner]
+    L2 --> L3[L3 Enrich<br/>KEV + EPSS]
+    L3 --> L4[L4 Triage<br/>dedup, MAL, exclude,<br/>installed-check, priority, sort]
+    L4 --> OUT[Output<br/>md + SARIF + JSONL]
+    OUT --> L5[L5 Publish<br/>scp sink]
+```
+
+## What works today (v0.3.0)
+
+- `pkgfence scan` against local registry roots AND remote SSH targets in one pass
 - Registry CLI: `validate`, `list`, `add-root`, `add-project`, `add-ssh`, `remove`
 - `pkgfence ssh precheck <name>` — pre-flight diagnostic for new SSH hosts (reachability, osv-scanner presence + version, discover_paths existence)
 - osv-scanner v2 integration with fallback to OSV API querybatch
-- Remote SSH scanning (Pattern B: osv-scanner runs on the remote host, only paths, hashes, and scanner JSON transit locally — source code never leaves the host)
-- YAML frontmatter on every report for machine-parseable metadata (run_id, timestamp, findings_by_severity, ssh_targets, etc.)
-- Scp publish sink — auto-push `.md`, `.sarif`, and `.jsonl` reports to a central location after each scan
-- CISA KEV `actively_exploited` enrichment via cveID + alias join
-- PURL canonical builder with scoped-npm `%40` percent encoding
-- Triple-layered triage: dedup → MAL-* override → expiring exceptions → deterministic sort → hardcoded exclusions
+- Remote SSH scanning (Pattern B: osv-scanner runs on the remote host; only paths, hashes, and scanner JSON transit locally — source code never leaves the host). Per-target batched `find`/`sha256sum`/`osv-scanner`/`ls`, with `ControlMaster` connection reuse on POSIX
+- **CVSS vectors decoded to real base scores** via the `cvss` package (V2/V3/V4) — a 9.8 critical is bucketed `critical`, not mis-read as the spec version
+- **CISA KEV** `actively_exploited` enrichment (cveID + alias join)
+- **EPSS** exploit-probability enrichment (score + percentile) from FIRST
+- **Triple-score ranking** — `priority_score = w_cvss·CVSS + w_epss·EPSS + w_kev·KEV` (weights tunable in `config/defaults.yaml`); findings sort by priority within each severity bucket
+- **EOL software detection** via a curated catalog (local + remote)
+- **Is-installed check** — packages not present on disk are demoted (lower false-positive fatigue), at one unified pipeline position for local and remote
+- Expiring exceptions/waivers, hardcoded low-value exclusions, and MAL-* malicious-package override (severity from config)
 - Diff-aware baseline scanning (NEW vs EXISTING tagging)
-- Markdown report + SARIF 2.1.0 + per-run JSONL audit log
+- Markdown report + YAML frontmatter + SARIF 2.1.0 + per-run JSONL audit log
+- `pkgfence-notify` — fire a webhook when a run surfaces genuinely-new (or escalated) findings above a threshold
+- Resilient threat-intel feeds: validate-before-publish caching, degrade-once, and an operator-visible stale-feed signal
 - Hard safety invariants S1, S2, S3, S4 enforced by tests
 - Four-state exit codes (0 clean / 1 findings / 2 scanner error / 3 config error)
-- 179 tests passing, every code path TDD-built
+- **341 tests passing**, every code path TDD-built
 
-## What's deferred (Phase 3+)
+## What's deferred (Phase 3b+)
 
-- GitHub mode (api / clone) — originally planned for Phase 2, deferred to v0.3.0
+- GitHub mode (api / clone)
 - Auto-bootstrap (`pkgfence ssh bootstrap <name>`) — manual osv-scanner install still required for now
 - Watch mode (scheduled monitoring + baseline drift detection)
 - Audit mode (deep one-shot review with extra scanners)
 - Layer 5 fix-recommendation pipeline (LLM recommend → critic review → text doc)
-- EPSS, GHSA, deps.dev, OpenSSF Scorecard enrichment
+- deps.dev + OpenSSF Scorecard enrichment
 - Behavioral heuristics (age, lifecycle scripts, provenance)
 - Coarse reachability tiering
 - Meta mode (audit `.claude/`, `.cursor/`, `mcp.json`)
-- EOL software detection
-- "is the package actually installed?" + OS correlation checks
 
-See `planning/plan.md` for the full roadmap (Phases 3-5 are outlined).
+See `planning/plan.md` for the full roadmap.
 
 ## Repository layout
 
@@ -61,33 +77,44 @@ pkgfence/
 │   ├── workflows/ssh-mode.md           ← SSH mode workflow (ACL, sudo, publish)
 │   ├── scanners/osv-scanner.md
 │   └── threat-intel/{cisa-kev.md, osv-api.md}
-├── scripts/                            ← Python implementation
-│   ├── discover.py                     ← L1a local discovery
-│   ├── discover_remote.py              ← L1b remote SSH discovery
-│   ├── scan_local.py                   ← L2a local scanner orchestration
-│   ├── scan_remote.py                  ← L2b remote SSH scanner orchestration
-│   ├── enrich_threats.py               ← L3 KEV overlay
-│   ├── triage.py                       ← L4 dedup/score/filter
+├── scripts/                            ← Python implementation (see docs/ARCHITECTURE.md §7)
+│   ├── discover.py                     ← L1 local discovery
+│   ├── discover_remote.py              ← L1 remote SSH discovery (batched sha256sum)
+│   ├── eol_detect.py                   ← L1 EOL-software catalog walk (local + remote)
+│   ├── scan_local.py                   ← L2 local scanner + CVSS vector decode
+│   ├── scan_remote.py                  ← L2 remote scan (one osv-scanner per target)
+│   ├── enrich_threats.py               ← L3 CISA KEV overlay
+│   ├── enrich_epss.py                  ← L3.5 EPSS score + percentile overlay
+│   ├── installed_check.py              ← L4 is-installed check + severity demotion
+│   ├── triage.py                       ← L4 dedup / MAL override / exceptions / exclude / sort
 │   ├── report.py                       ← markdown report generator (with YAML frontmatter)
 │   ├── publish.py                      ← scp publish sink
+│   ├── notify.py                       ← pkgfence-notify: webhook on new/escalated findings
 │   ├── ssh_precheck.py                 ← ssh precheck CLI
+│   ├── compile_requirements.py         ← derive requirements.txt for self-scan
 │   ├── registry_cli.py                 ← CLI (validate/list/add-root/add-project/add-ssh/remove)
 │   ├── scan_command.py                 ← entry point: pkgfence scan
 │   └── lib/                            ← helpers
 │       ├── SAFETY_INVARIANTS.md        ← S1/S2/S3/S4 doc
 │       ├── logger.py
-│       ├── types.py                    ← Finding TypedDict + new_finding factory
-│       ├── config.py                   ← defaults.yaml loader
+│       ├── types.py                    ← Finding TypedDict, SEVERITY_RANK, is_status_record, iter_vuln_ids
+│       ├── config.py                   ← defaults.yaml loader + shared load_yaml()
+│       ├── proc.py                     ← single run_capture() subprocess wrapper (utf-8 safe)
+│       ├── frontmatter.py              ← single owner of the report --- frontmatter format
+│       ├── priority.py                 ← triple-score priority_score (config-driven weights)
 │       ├── purl.py                     ← canonical PURL builder
 │       ├── osv_client.py               ← OSV API querybatch + cache + 429 backoff
-│       ├── kev_client.py               ← CISA KEV fetch + cache + degraded mode
+│       ├── feed_cache.py               ← shared TTL cache + degrade-once base for KEV/EPSS
+│       ├── kev_client.py               ← CISA KEV fetch (FeedCacheClient subclass)
+│       ├── epss_client.py              ← FIRST EPSS fetch (FeedCacheClient subclass, host allowlist)
 │       ├── exceptions.py               ← expiring waivers
 │       ├── baseline.py                 ← save/load + NEW/EXISTING diff
 │       ├── sarif.py                    ← SARIF 2.1.0 emitter
 │       ├── audit_log.py                ← per-run JSONL writer
-│       ├── ssh_runner.py               ← SSH command runner (key_file, use_sudo, port)
+│       ├── ssh_runner.py               ← SSH runner (shlex-quoted, allowlisted, ControlMaster)
+│       ├── remote_types.py             ← RemoteManifest TypedDict
 │       └── registry.py                 ← registry load/validate/atomic-write
-├── tests/                              ← 179 tests
+├── tests/                              ← 341 tests
 │   ├── conftest.py                     ← shared tmp_state, tmp_registry fixtures
 │   ├── fixtures/
 │   │   ├── npm/{vulnerable,clean,corrupted}/
@@ -200,7 +227,8 @@ Phase 2 SSH support closed the loop on the second class. During tier-1 dogfood, 
 
 | Document | Description | Audience |
 |----------|-------------|----------|
-| [README.md](README.md) | Project overview, architecture, quick start | User, Developer |
+| [README.md](README.md) | Project overview, quick start | User, Developer |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Pipeline, data-flow, feed-cache, and safety-boundary diagrams | Developer, AI |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute: bugs, enhancements, PR process, safety invariants | Developer |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Developer environment setup, testing, conventions, troubleshooting | Developer |
 | [SKILL.md](SKILL.md) | Claude Code skill definition for invoking pkgfence from other projects | AI |
@@ -217,7 +245,7 @@ Phase 2 SSH support closed the loop on the second class. During tier-1 dogfood, 
 
 ## Development
 
-- **Test suite**: `python -m pytest -v` (179 tests, all passing)
+- **Test suite**: `python -m pytest -v` (341 tests, all passing)
 - **Coverage**: `python -m pytest --cov=scripts --cov-report=term-missing`
 - **Lint**: not yet configured (Phase 5)
 - **CI**: GitHub Actions workflow at `.github/workflows/test.yml`
