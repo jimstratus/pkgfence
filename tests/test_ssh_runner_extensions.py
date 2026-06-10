@@ -188,5 +188,13 @@ def test_control_master_enabled_on_posix():
     ssh_cmd = runner._build_ssh_cmd(["ls", "/tmp"])
     if os.name == "posix":
         assert "ControlMaster=auto" in ssh_cmd
+        # ControlPath must use %C (fixed-length hash) so a long hostname
+        # can't blow the ~108-char unix-socket path limit. Guards against
+        # silently reverting to %r@%h:%p.
+        assert any("ControlPath=" in s and "%C" in s for s in ssh_cmd)
+        assert not any("%h:%p" in s for s in ssh_cmd)
+        # ControlMaster options must precede the user@host operand so the
+        # remote command stays the last argv element (S3 quoting contract).
+        assert ssh_cmd.index("ControlMaster=auto") < ssh_cmd.index("nobody@example.invalid")
     else:
         assert "ControlMaster=auto" not in ssh_cmd

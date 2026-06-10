@@ -230,3 +230,21 @@ def test_degraded_enricher_adds_exactly_one_message(tmp_state, tmp_registry):
     # degraded_modes list, once in the body's degraded-mode section.
     assert report.count("CISA KEV feed degraded") == 2
     assert report.count("EPSS feed degraded") == 2
+
+
+def test_stale_enricher_emits_stale_message(tmp_state, tmp_registry):
+    """The enricher loop's stale branch (elif) emits the stale message when
+    a feed served an expired cache rather than degrading outright (#20.1)."""
+    from scripts.scan_command import run_scan
+
+    with patch("scripts.scan_command.KEVClient") as kev_cls, \
+         patch("scripts.scan_command.EPSSClient") as epss_cls:
+        kev_cls.return_value.is_degraded = False
+        kev_cls.return_value.is_stale = True
+        epss_cls.return_value.is_degraded = False
+        epss_cls.return_value.is_stale = False
+        epss_cls.return_value.feed_timestamp = None
+        _exit_code, report_path = run_scan(tmp_registry, tmp_state)
+    report = report_path.read_text(encoding="utf-8")
+    assert "CISA KEV feed stale" in report
+    assert "CISA KEV feed degraded" not in report
