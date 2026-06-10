@@ -9,11 +9,9 @@ The report has these sections:
 - Summary (counts by severity)
 - Findings list (grouped by severity, one card per finding)
 """
-from io import StringIO
 from typing import Any
 
-from ruamel.yaml import YAML
-
+from scripts.lib.frontmatter import build_frontmatter
 from scripts.lib.types import Finding, is_status_record
 
 
@@ -54,11 +52,7 @@ def _build_frontmatter(
         "epss_feed_timestamp": snapshot.get("epss_feed_timestamp"),
     }
 
-    yaml = YAML(typ="rt")
-    yaml.default_flow_style = False
-    buf = StringIO()
-    yaml.dump(fm_data, buf)
-    return "---\n" + buf.getvalue() + "---\n"
+    return build_frontmatter(fm_data)
 
 
 _DISCLAIMER_TEMPLATE = (

@@ -10,13 +10,12 @@ import datetime
 import logging
 import socket
 import sys
-from io import StringIO
 from pathlib import Path
 
 import httpx
-from ruamel.yaml import YAML
 
 from scripts.lib.baseline import load_baseline
+from scripts.lib.frontmatter import parse_frontmatter
 from scripts.lib.types import SEVERITY_RANK, is_status_record
 
 log = logging.getLogger(__name__)
@@ -47,22 +46,7 @@ def parse_report_frontmatter(report_path: Path) -> dict:
     Returns:
         Parsed frontmatter as a plain dict.
     """
-    text = report_path.read_text(encoding="utf-8")
-    # Frontmatter is between the first and second --- markers
-    lines = text.splitlines()
-    if not lines or lines[0].strip() != "---":
-        return {}
-    end_idx = None
-    for i, line in enumerate(lines[1:], start=1):
-        if line.strip() == "---":
-            end_idx = i
-            break
-    if end_idx is None:
-        return {}
-    frontmatter_text = "\n".join(lines[1:end_idx])
-    yaml = YAML(typ="safe")
-    data = yaml.load(StringIO(frontmatter_text))
-    return data or {}
+    return parse_frontmatter(report_path.read_text(encoding="utf-8"))
 
 
 def get_two_latest_reports(state_dir: Path) -> tuple[Path, Path] | None:
