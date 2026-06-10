@@ -5,8 +5,10 @@ to running the command locally. Never silently swallows the error.
 S3 invariant: Only commands in the allowlist may run on remote hosts, and
 every argument is shell-quoted before reaching the remote login shell.
 """
+import os
 import subprocess
 import shlex
+import tempfile
 from pathlib import PurePosixPath
 from typing import List
 
@@ -71,6 +73,17 @@ class SSHRunner:
         remote_cmd = " ".join(shlex.quote(arg) for arg in command)
         ssh_cmd = ["ssh", "-o", "ConnectTimeout=10",
                    "-o", "BatchMode=yes"]  # never prompt for password
+        if os.name == "posix":
+            # Reuse one TCP+auth session across the many per-target calls
+            # (find, sha256sum, osv-scanner, ls). Windows OpenSSH lacks
+            # ControlMaster, hence the gate. %C is a fixed-length hash of
+            # the connection tuple — using %r@%h:%p risks blowing the ~108
+            # char unix-socket path limit on long hostnames.
+            control_path = os.path.join(
+                tempfile.gettempdir(), "pkgfence-ssh-%C")
+            ssh_cmd += ["-o", "ControlMaster=auto",
+                        "-o", f"ControlPath={control_path}",
+                        "-o", "ControlPersist=60"]
         if self.port is not None:
             ssh_cmd += ["-p", str(self.port)]
         if self.key_file:

@@ -1,6 +1,7 @@
 """Tests for Phase 2 extensions to SSHRunner: key_file, scanner_user, use_sudo.
 
 These must preserve S1 (no silent fallback) and S3 (command allowlist)."""
+import os
 import pytest
 import shlex
 from unittest.mock import patch, MagicMock
@@ -176,3 +177,16 @@ def test_allowlist_rejects_absolute_path_with_disallowed_basename():
     runner = SSHRunner(host="h.example", user="u")
     with pytest.raises(ValueError, match="not in SSH allowlist"):
         runner.run(["/usr/bin/curl", "http://evil.example"])
+
+
+# ---------------------------------------------------------------------------
+# Task 19: SSH ControlMaster connection reuse (POSIX-only)
+# ---------------------------------------------------------------------------
+
+def test_control_master_enabled_on_posix():
+    runner = SSHRunner(host="example.invalid", user="nobody")
+    ssh_cmd = runner._build_ssh_cmd(["ls", "/tmp"])
+    if os.name == "posix":
+        assert "ControlMaster=auto" in ssh_cmd
+    else:
+        assert "ControlMaster=auto" not in ssh_cmd
