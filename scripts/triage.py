@@ -72,6 +72,8 @@ def apply_exceptions(
         return findings
 
     def is_suppressed(f: Finding) -> bool:
+        if is_status_record(f):
+            return False  # status records flow through, never suppressed (issue #10)
         for exc in active:
             if exc.get("vuln_id") != f.get("vuln_id"):
                 continue

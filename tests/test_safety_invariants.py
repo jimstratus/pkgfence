@@ -102,3 +102,38 @@ def test_ssh_identities_only_set_with_keyfile():
     runner = SSHRunner(host="example.invalid", user="nobody", key_file="/k")
     ssh_cmd = runner._build_ssh_cmd(["ls", "/tmp"])
     assert "IdentitiesOnly=yes" in ssh_cmd
+
+
+def test_no_caller_side_quoting_for_ssh_args():
+    """S3 companion: SSHRunner quotes every remote argument centrally —
+    callers must never pre-quote or pre-escape. A pre-escaped "\\(" or a
+    caller-side shlex.quote() would arrive on the remote as literal
+    characters now that the runner quotes (issue #7 review follow-up)."""
+    allowed = {"ssh_runner.py", "publish.py"}  # publish builds its own scp/ssh cmdline
+    violations = []
+    for py_file in (SKILL_ROOT / "scripts").rglob("*.py"):
+        if py_file.name in allowed:
+            continue
+        text = py_file.read_text(encoding="utf-8")
+        if re.search(r'\\\\[()]', text):
+            violations.append(f"{py_file}: backslash-escaped find paren")
+        if "shlex.quote" in text:
+            violations.append(f"{py_file}: caller-side shlex.quote")
+    assert not violations, "callers must not pre-quote: " + "; ".join(violations)
+
+
+@pytest.mark.parametrize("hostile", [
+    "",
+    "/var/www/o'brien/package-lock.json",
+    "/var/www/$(reboot)/package-lock.json",
+    "/var/www/* glob */package-lock.json",
+    "/var/www/a b/package-lock.json",
+    '/var/www/"quoted"/package-lock.json',
+    "/var/www/`backtick`/package-lock.json",
+])
+def test_ssh_quoting_round_trips_edge_cases(hostile):
+    """S3: every metacharacter class must survive the quote/split round-trip
+    as one literal operand."""
+    runner = SSHRunner(host="example.invalid", user="nobody")
+    ssh_cmd = runner._build_ssh_cmd(["ls", hostile])
+    assert shlex.split(ssh_cmd[-1]) == ["ls", hostile]

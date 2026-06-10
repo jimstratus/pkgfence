@@ -66,6 +66,8 @@ def test_build_find_command_uses_bare_parens_for_central_quoting():
     assert cmd[0] == "find"
     assert "/var/www" in cmd
     assert "-maxdepth" in cmd
+    assert "-type" in cmd
+    assert "-name" in cmd
 
 
 def test_discover_remote_safely_converts_unreachable_to_scan_error_record():

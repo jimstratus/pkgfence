@@ -226,3 +226,14 @@ def test_dedup_never_collapses_scan_error_records():
     ]
     result = dedup_findings(findings)
     assert len(result) == 2
+
+
+def test_exceptions_never_suppress_status_records():
+    """Issue #10 contract: status records flow through — even an exception
+    entry targeting vuln_id SCAN_ERROR must not suppress them."""
+    from scripts.triage import apply_exceptions
+    exceptions = [{"vuln_id": "SCAN_ERROR", "scope": "", "expires": "2099-01-01"}]
+    err = new_finding("pkg:scan-error/bespin@-", "SCAN_ERROR", "info",
+                      "/x/package-lock.json", target="bespin", status="SCAN_ERROR")
+    result = apply_exceptions([err], exceptions)
+    assert result == [err]
