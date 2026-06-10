@@ -91,3 +91,10 @@ def new_finding(
     }
     f.update(extras)
     return f
+
+
+def is_status_record(finding: Finding) -> bool:
+    """True for pipeline-status records (SCAN_ERROR) rather than actual
+    vulnerabilities. Status records flow through every stage UNCHANGED:
+    never deduped, enriched, scored, demoted, or excluded (issue #10)."""
+    return finding.get("status") == "SCAN_ERROR"

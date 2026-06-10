@@ -211,3 +211,18 @@ def test_sort_findings_no_priority_score_treated_as_zero():
     result = sort_findings([a, b])
     assert result[0]["vuln_id"] == "CVE-1"  # a (0.5) before b (0.0)
     assert result[1]["vuln_id"] == "CVE-2"
+
+
+def test_dedup_never_collapses_scan_error_records():
+    """Issue #10: every SCAN_ERROR on a target shares purl+vuln_id; dedup
+    must pass ALL of them through ('flow through, never block')."""
+    findings = [
+        new_finding("pkg:scan-error/bespin@-", "SCAN_ERROR", "info",
+                    "/var/www/a/package-lock.json", target="bespin",
+                    status="SCAN_ERROR", description="manifest a failed"),
+        new_finding("pkg:scan-error/bespin@-", "SCAN_ERROR", "info",
+                    "/var/www/b/package-lock.json", target="bespin",
+                    status="SCAN_ERROR", description="manifest b failed"),
+    ]
+    result = dedup_findings(findings)
+    assert len(result) == 2

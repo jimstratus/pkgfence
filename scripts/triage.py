@@ -7,7 +7,7 @@ Phase 1 scope (this file is built up across Tasks 10.1-10.5):
 - 10.4: deterministic sort
 - 10.5: hardcoded exclusions list
 """
-from scripts.lib.types import Finding
+from scripts.lib.types import Finding, is_status_record
 
 
 def dedup_findings(findings: list[Finding]) -> list[Finding]:
@@ -15,6 +15,9 @@ def dedup_findings(findings: list[Finding]) -> list[Finding]:
     seen: set[tuple[str, str]] = set()
     result: list[Finding] = []
     for f in findings:
+        if is_status_record(f):
+            result.append(f)  # status records are never deduped (issue #10)
+            continue
         key = (f.get("purl", ""), f.get("vuln_id", ""))
         if key in seen:
             continue
@@ -114,7 +117,7 @@ def apply_exclusions(findings: list[Finding], config: dict) -> list[Finding]:
     excluded_cats = set(config.get("exclude_categories", []))
 
     def keep(f: Finding) -> bool:
-        if f.get("status") == "SCAN_ERROR":
+        if is_status_record(f):
             return True
         sev_rank = SEVERITY_RANK.get(f.get("severity", "medium"), 2)
         if sev_rank > floor_rank:

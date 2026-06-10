@@ -1,5 +1,5 @@
 """Test the Finding TypedDict contract."""
-from scripts.lib.types import Finding, new_finding
+from scripts.lib.types import Finding, new_finding, is_status_record
 
 
 def test_finding_accepts_installed_and_original_severity():
@@ -37,3 +37,9 @@ def test_new_finding_has_all_required_fields():
     assert f["actively_exploited"] is False
     assert f["diff_status"] == "NEW"
     assert f["status"] == "OK"
+
+
+def test_is_status_record():
+    assert is_status_record({"status": "SCAN_ERROR"})
+    assert not is_status_record({"status": "OK"})
+    assert not is_status_record({})
