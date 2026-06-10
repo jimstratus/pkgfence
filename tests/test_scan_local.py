@@ -105,7 +105,7 @@ def test_osv_scanner_exit_code_128_is_empty_lockfile():
             run_osv_scanner_lockfile("/tmp/fake/package-lock.json")
 
 
-from scripts.scan_local import parse_osv_output, _extract_cvss_score
+from scripts.scan_local import parse_osv_output, _extract_cvss_score, _extract_severity
 
 
 def test_parse_osv_output_extracts_findings():
@@ -290,3 +290,37 @@ def test_parse_osv_output_sets_cvss_score():
     findings = parse_osv_output(raw, "/a/package-lock.json", "local")
     assert len(findings) == 1
     assert findings[0].get("cvss_score") == 9.8
+
+
+def test_extract_cvss_score_from_real_vector_only_string():
+    """Real osv-scanner emits the bare CVSS vector with NO appended base
+    score. 9.8-critical must not be read as spec-version 3.1 (issue #9)."""
+    sev = [{"type": "CVSS_V3",
+            "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"}]
+    assert _extract_cvss_score(sev) == 9.8
+
+
+def test_extract_severity_from_real_vector_only_string():
+    sev = [{"type": "CVSS_V3",
+            "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"}]
+    assert _extract_severity(sev) == "critical"
+
+
+def test_extract_cvss_score_v2_vector():
+    sev = [{"type": "CVSS_V2", "score": "AV:N/AC:L/Au:N/C:C/I:C/A:C"}]
+    assert _extract_cvss_score(sev) == 10.0
+
+
+def test_extract_cvss_score_v4_vector():
+    """CVSS_V4 entries are already common in OSV data — a V4 vector must
+    decode (and never crash the scan)."""
+    sev = [{"type": "CVSS_V4",
+            "score": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"}]
+    assert _extract_cvss_score(sev) == 9.3
+    assert _extract_severity(sev) == "critical"
+
+
+def test_extract_cvss_score_invalid_vector_returns_none():
+    sev = [{"type": "CVSS_V3", "score": "CVSS:3.1/GARBAGE"}]
+    assert _extract_cvss_score(sev) is None
+    assert _extract_severity(sev) == "medium"

@@ -15,6 +15,9 @@ import shutil
 import subprocess
 from typing import Optional
 
+from cvss import CVSS2, CVSS3, CVSS4
+from cvss.exceptions import CVSSError
+
 
 # Exit codes that mean osv-scanner ran successfully (whether or not vulns were found)
 OSV_SUCCESS_EXIT_CODES = {0, 1}
@@ -123,61 +126,58 @@ import json as _json
 from scripts.lib.purl import build_purl
 from scripts.lib.types import Finding, new_finding
 
+_CVSS_PARSERS = {"CVSS_V2": CVSS2, "CVSS_V3": CVSS3, "CVSS_V4": CVSS4}
+
+
+def _score_from_severity_entry(entry: dict) -> float | None:
+    """Numeric CVSS base score from one OSV severity entry, or None.
+
+    Real osv-scanner emits the raw CVSS VECTOR ("CVSS:3.1/AV:N/...") with no
+    appended base score — it must be decoded, not regex-mined for a float
+    (issue #9: the only numeric token in a vector is the spec version)."""
+    parser = _CVSS_PARSERS.get(entry.get("type", ""))
+    if parser is None:
+        return None
+    score_str = str(entry.get("score") or "").strip()
+    if not score_str:
+        return None
+    if "/" in score_str:  # vector string (CVSS2 vectors lack the CVSS: prefix)
+        try:
+            return float(parser(score_str.split()[0]).scores()[0])
+        except CVSSError:
+            return None
+    try:
+        score = float(score_str)
+    except ValueError:
+        return None
+    return score if 0.0 <= score <= 10.0 else None
+
 
 def _extract_severity(vuln_severity_list: list[dict]) -> str:
-    """Extract a severity bucket from osv-scanner vulnerability severity list.
-
-    osv-scanner emits severity as a list of dicts with 'type' and 'score'.
-    Score may be a CVSS vector string or a numeric string. We map:
-        score >= 9.0 -> critical
-        score >= 7.0 -> high
-        score >= 4.0 -> medium
-        score >  0.0 -> low
-        else            -> info
-    """
-    if not vuln_severity_list:
-        return "medium"  # default if scanner didn't provide one
-    for entry in vuln_severity_list:
-        score_str = entry.get("score", "")
-        # Try numeric extraction
-        m = re.search(r"\b(\d+\.\d+|\d+)\b", score_str)
-        if m:
-            try:
-                score = float(m.group(1))
-                if score >= 9.0:
-                    return "critical"
-                if score >= 7.0:
-                    return "high"
-                if score >= 4.0:
-                    return "medium"
-                if score > 0.0:
-                    return "low"
-                return "info"
-            except ValueError:
-                pass
-    return "medium"
+    """Map the best available CVSS base score to a severity bucket:
+        >= 9.0 critical, >= 7.0 high, >= 4.0 medium, > 0.0 low, else info.
+    Defaults to medium when the scanner provided nothing decodable."""
+    score = _extract_cvss_score(vuln_severity_list or [])
+    if score is None:
+        return "medium"
+    if score >= 9.0:
+        return "critical"
+    if score >= 7.0:
+        return "high"
+    if score >= 4.0:
+        return "medium"
+    if score > 0.0:
+        return "low"
+    return "info"
 
 
 def _extract_cvss_score(severity_array: list[dict]) -> float | None:
-    """Extract numeric CVSS base score from osv-scanner severity array.
-
-    Returns the largest valid score (0.0-10.0) found in any CVSS_V* entry.
-    The CVSS vector string can contain both '3.1' (spec version) and the
-    base score (e.g., '9.8') — taking the max correctly handles both
-    'CVSS:3.1/.../C:H/I:H/A:H 9.8' and a bare '9.8'.
-    """
-    for entry in severity_array:
-        if not entry.get("type", "").startswith("CVSS_V"):
-            continue
-        score_str = entry.get("score", "")
-        candidates = [
-            float(m.group(0))
-            for m in re.finditer(r"\b\d+\.\d+\b", score_str)
-        ]
-        valid = [c for c in candidates if 0.0 <= c <= 10.0]
-        if valid:
-            return max(valid)
-    return None
+    """Largest decodable CVSS base score across all CVSS_V* entries."""
+    scores = [
+        s for entry in severity_array
+        if (s := _score_from_severity_entry(entry)) is not None
+    ]
+    return max(scores) if scores else None
 
 
 def parse_osv_output(raw_json: str, manifest_path: str, target: str) -> list[Finding]:
