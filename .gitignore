@@ -40,3 +40,6 @@ logs/
 
 # CodeGraph local cache (Kilo / Codex tooling, not part of pkgfence)
 .codegraph/
+
+# Ad-hoc scan output dir (same class as state/ — never commit)
+scanstate/

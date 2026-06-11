@@ -4,7 +4,7 @@ from io import StringIO
 from ruamel.yaml import YAML
 
 from scripts.lib.types import new_finding
-from scripts.report import render_markdown_report
+from scripts.report import render_markdown_report, _render_finding_card
 
 
 def test_render_markdown_report_basic_structure():
@@ -331,7 +331,7 @@ def test_report_priority_line_with_no_epss():
     f["priority_score"] = 0.32
     report = render_markdown_report([f], {"scanner_version": "2.3.3"}, [])
     assert "Priority" in report
-    assert "EPSS=0.00" in report
+    assert "EPSS=n/a" in report  # no epss_score key → absent, not measured 0.0
     assert "KEV=false" in report
 
 
@@ -352,6 +352,14 @@ def test_frontmatter_includes_epss_feed_timestamp():
     report = render_markdown_report([], snapshot, [])
     assert "epss_feed_timestamp" in report
     assert "2026-04-11" in report
+
+
+def test_scan_error_card_has_no_priority_line():
+    err = {"vuln_id": "SCAN_ERROR", "severity": "info", "status": "SCAN_ERROR",
+           "purl": "pkg:scan-error/bespin@-", "manifest_path": "/x",
+           "target": "bespin", "priority_score": 0.04}
+    card = _render_finding_card(err)
+    assert "Priority:" not in card
 
 
 def test_frontmatter_severity_keys_in_severity_rank_order():
@@ -386,3 +394,23 @@ def test_frontmatter_severity_keys_in_severity_rank_order():
     assert indices == sorted(indices), (
         f"severity keys not in rank order: {list(zip(keys_in_order, indices))}"
     )
+
+
+def test_priority_line_shows_raw_cvss_not_normalized():
+    f = {"vuln_id": "CVE-2024-1", "severity": "critical", "purl": "pkg:npm/x@1",
+         "manifest_path": "/x", "target": "t", "priority_score": 0.69,
+         "cvss_score": 9.8, "epss_score": 0.5, "epss_percentile": 0.9}
+    card = _render_finding_card(f)
+    assert "CVSS=9.8" in card
+    assert "CVSS=0.98" not in card
+
+
+def test_priority_line_distinguishes_epss_zero_from_absent():
+    base = {"vuln_id": "CVE-2024-1", "severity": "high", "purl": "pkg:npm/x@1",
+            "manifest_path": "/x", "target": "t", "priority_score": 0.3,
+            "cvss_score": 7.0}
+    absent = _render_finding_card(dict(base))
+    assert "EPSS=n/a" in absent
+    zero = _render_finding_card(
+        dict(base, epss_score=0.0, epss_percentile=0.01))
+    assert "EPSS=0.00 (p1)" in zero

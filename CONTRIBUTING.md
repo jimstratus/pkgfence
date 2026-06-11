@@ -32,7 +32,7 @@ Open an issue with:
 1. **Fork the repository** and create a feature branch from `main`.
 2. **Discuss first** for large changes — open an issue before writing code.
 3. **Follow the TDD discipline** — write the failing test first, watch it fail, write minimal implementation, watch it pass.
-4. **Write pytest tests** for all new functionality. The project has 179 tests and every code path is TDD-built.
+4. **Write pytest tests** for all new functionality. The project has 341 tests and every code path is TDD-built.
 5. **Run the full test suite** before submitting:
    ```bash
    python -m pytest -v

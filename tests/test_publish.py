@@ -96,7 +96,7 @@ def test_publish_run_happy_path(tmp_path):
         "include": ["md", "sarif", "jsonl"],
     }
 
-    with patch("scripts.publish.subprocess.run") as mock_run:
+    with patch("scripts.lib.proc.subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
         failures = publish_run([sink], state, "OK-RUN")
 
@@ -126,7 +126,7 @@ def test_publish_run_mkdir_failure_records_failure_no_scp(tmp_path):
     state = _setup_state(tmp_path, "MKDIR-FAIL")
     sink = {"type": "scp", "destination": "pkgfence@control.example"}
 
-    with patch("scripts.publish.subprocess.run") as mock_run:
+    with patch("scripts.lib.proc.subprocess.run") as mock_run:
         # First call (mkdir) fails; we'd never get to the scp calls
         mock_run.return_value = MagicMock(
             returncode=255, stdout="", stderr="Permission denied",
@@ -156,7 +156,7 @@ def test_publish_run_scp_failure_records_per_artifact(tmp_path):
             return MagicMock(returncode=0, stdout="", stderr="")
         return MagicMock(returncode=1, stdout="", stderr="connection refused")
 
-    with patch("scripts.publish.subprocess.run", side_effect=fake):
+    with patch("scripts.lib.proc.subprocess.run", side_effect=fake):
         failures = publish_run([sink], state, "SCP-FAIL")
 
     assert len(failures) == 1
@@ -170,7 +170,7 @@ def test_publish_run_unknown_sink_type_records_failure(tmp_path):
     state = _setup_state(tmp_path, "BAD-TYPE")
     sink = {"type": "git", "destination": "git@github.com:foo/bar"}
 
-    with patch("scripts.publish.subprocess.run") as mock_run:
+    with patch("scripts.lib.proc.subprocess.run") as mock_run:
         failures = publish_run([sink], state, "BAD-TYPE")
 
     assert len(failures) == 1
@@ -184,7 +184,7 @@ def test_publish_run_never_raises_on_subprocess_error(tmp_path):
     state = _setup_state(tmp_path, "NO-SCP")
     sink = {"type": "scp", "destination": "u@h"}
 
-    with patch("scripts.publish.subprocess.run", side_effect=FileNotFoundError("scp not found")):
+    with patch("scripts.lib.proc.subprocess.run", side_effect=FileNotFoundError("scp not found")):
         failures = publish_run([sink], state, "NO-SCP")
 
     assert len(failures) == 1
@@ -239,7 +239,7 @@ def test_ensure_remote_dir_shell_quotes_remote_path():
         captured["cmd"] = cmd
         return MagicMock(returncode=0, stdout="", stderr="")
 
-    with patch("scripts.publish.subprocess.run", side_effect=fake_run):
+    with patch("scripts.lib.proc.subprocess.run", side_effect=fake_run):
         # scanner_host is sanitized by the time it reaches _ensure_remote_dir,
         # but the function should still shell-quote the path on the way out
         _ensure_remote_dir(sink, "SCANHOST")
@@ -255,7 +255,7 @@ def test_ensure_remote_dir_shell_quotes_remote_path():
 
     # Now test with a hostname that WOULD have unsafe chars if not sanitized
     captured.clear()
-    with patch("scripts.publish.subprocess.run", side_effect=fake_run):
+    with patch("scripts.lib.proc.subprocess.run", side_effect=fake_run):
         _ensure_remote_dir(sink, "weird host'name")
     cmd = captured["cmd"]
     mkdir_str = cmd[-1]

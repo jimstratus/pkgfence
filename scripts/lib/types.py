@@ -11,6 +11,12 @@ Severity = Literal["critical", "high", "medium", "low", "info"]
 DiffStatus = Literal["NEW", "CHANGED", "EXISTING"]
 Status = Literal["OK", "SCAN_ERROR", "WAIVED"]
 
+# Single source of truth for severity ordering (issue #18). The --fail-on
+# gate, notify thresholds, and triage sort all rank through this dict.
+SEVERITY_RANK: dict[str, int] = {
+    "critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4,
+}
+
 
 class Finding(TypedDict, total=False):
     """A single vulnerability finding, normalized across scanners.
@@ -91,3 +97,22 @@ def new_finding(
     }
     f.update(extras)
     return f
+
+
+def is_status_record(finding: Finding) -> bool:
+    """True for pipeline-status records (SCAN_ERROR) rather than actual
+    vulnerabilities. Status records flow through every stage UNCHANGED:
+    never deduped, enriched, scored, demoted, or excluded (issue #10)."""
+    return finding.get("status") == "SCAN_ERROR"
+
+
+def iter_vuln_ids(finding: Finding):
+    """Yield the primary vuln_id then all string aliases. Non-string or
+    empty aliases (malformed scanner output) are skipped — enrichment must
+    degrade, not crash (issue #18: three drifted copies of this walk)."""
+    vid = finding.get("vuln_id", "")
+    if isinstance(vid, str) and vid:
+        yield vid
+    for alias in finding.get("aliases") or []:
+        if isinstance(alias, str) and alias:
+            yield alias

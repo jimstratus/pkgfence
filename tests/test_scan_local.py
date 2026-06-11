@@ -10,7 +10,7 @@ def test_detect_osv_scanner_installed():
     fake_result.returncode = 0
     fake_result.stdout = "osv-scanner version 2.3.3\nbuilt at 2026-02-11"
     with patch("scripts.scan_local.shutil.which", return_value="osv-scanner"):
-        with patch("scripts.scan_local.subprocess.run", return_value=fake_result):
+        with patch("scripts.lib.proc.subprocess.run", return_value=fake_result):
             version = detect_scanner("osv-scanner")
     assert version == "2.3.3"
 
@@ -27,7 +27,7 @@ def test_detect_osv_scanner_below_minimum_version():
     fake_result.returncode = 0
     fake_result.stdout = "osv-scanner version 1.9.0"
     with patch("scripts.scan_local.shutil.which", return_value="osv-scanner"):
-        with patch("scripts.scan_local.subprocess.run", return_value=fake_result):
+        with patch("scripts.lib.proc.subprocess.run", return_value=fake_result):
             version = detect_scanner("osv-scanner")
     assert version == "1.9.0"
 
@@ -65,7 +65,7 @@ def test_osv_scanner_exit_code_0_is_success_no_vulns():
     fake_result.returncode = 0
     fake_result.stdout = SAMPLE_OSV_OUTPUT_NO_VULNS
     fake_result.stderr = ""
-    with patch("scripts.scan_local.subprocess.run", return_value=fake_result):
+    with patch("scripts.lib.proc.subprocess.run", return_value=fake_result):
         raw_json = run_osv_scanner_lockfile("/tmp/fake/package-lock.json")
     assert '"results": []' in raw_json
 
@@ -76,7 +76,7 @@ def test_osv_scanner_exit_code_1_is_success_with_findings():
     fake_result.returncode = 1
     fake_result.stdout = SAMPLE_OSV_OUTPUT_WITH_VULN
     fake_result.stderr = ""
-    with patch("scripts.scan_local.subprocess.run", return_value=fake_result):
+    with patch("scripts.lib.proc.subprocess.run", return_value=fake_result):
         raw_json = run_osv_scanner_lockfile("/tmp/fake/package-lock.json")
     assert "GHSA-jf85-cpcp-j695" in raw_json
 
@@ -86,7 +86,7 @@ def test_osv_scanner_exit_code_2_is_error():
     fake_result.returncode = 2
     fake_result.stdout = ""
     fake_result.stderr = "scanner internal error: invalid input"
-    with patch("scripts.scan_local.subprocess.run", return_value=fake_result):
+    with patch("scripts.lib.proc.subprocess.run", return_value=fake_result):
         with pytest.raises(ScannerError, match="exit 2"):
             run_osv_scanner_lockfile("/tmp/fake/package-lock.json")
 
@@ -100,12 +100,12 @@ def test_osv_scanner_exit_code_128_is_empty_lockfile():
     fake_result.returncode = 128
     fake_result.stdout = ""
     fake_result.stderr = "No package sources found"
-    with patch("scripts.scan_local.subprocess.run", return_value=fake_result):
+    with patch("scripts.lib.proc.subprocess.run", return_value=fake_result):
         with pytest.raises(EmptyLockfileError):
             run_osv_scanner_lockfile("/tmp/fake/package-lock.json")
 
 
-from scripts.scan_local import parse_osv_output, _extract_cvss_score
+from scripts.scan_local import parse_osv_output, _extract_cvss_score, _extract_severity
 
 
 def test_parse_osv_output_extracts_findings():
@@ -202,7 +202,7 @@ def test_detect_scanner_uses_shutil_which():
     fake_result.returncode = 0
     fake_result.stdout = "osv-scanner version 2.3.3"
     with patch("scripts.scan_local.shutil.which", return_value="C:/Users/ryanm/scoop/shims/osv-scanner.cmd"):
-        with patch("scripts.scan_local.subprocess.run", return_value=fake_result) as mock_run:
+        with patch("scripts.lib.proc.subprocess.run", return_value=fake_result) as mock_run:
             version = detect_scanner("osv-scanner")
     assert version == "2.3.3"
     # Verify subprocess.run was called with the resolved path, not the bare name
@@ -232,7 +232,7 @@ def test_detect_scanner_parses_colon_version_format():
         "built at: 2026-02-11T23:42:50Z\n"
     )
     with patch("scripts.scan_local.shutil.which", return_value="osv-scanner"):
-        with patch("scripts.scan_local.subprocess.run", return_value=fake_result):
+        with patch("scripts.lib.proc.subprocess.run", return_value=fake_result):
             version = detect_scanner("osv-scanner")
     assert version == "2.3.3"
 
@@ -290,3 +290,37 @@ def test_parse_osv_output_sets_cvss_score():
     findings = parse_osv_output(raw, "/a/package-lock.json", "local")
     assert len(findings) == 1
     assert findings[0].get("cvss_score") == 9.8
+
+
+def test_extract_cvss_score_from_real_vector_only_string():
+    """Real osv-scanner emits the bare CVSS vector with NO appended base
+    score. 9.8-critical must not be read as spec-version 3.1 (issue #9)."""
+    sev = [{"type": "CVSS_V3",
+            "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"}]
+    assert _extract_cvss_score(sev) == 9.8
+
+
+def test_extract_severity_from_real_vector_only_string():
+    sev = [{"type": "CVSS_V3",
+            "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"}]
+    assert _extract_severity(sev) == "critical"
+
+
+def test_extract_cvss_score_v2_vector():
+    sev = [{"type": "CVSS_V2", "score": "AV:N/AC:L/Au:N/C:C/I:C/A:C"}]
+    assert _extract_cvss_score(sev) == 10.0
+
+
+def test_extract_cvss_score_v4_vector():
+    """CVSS_V4 entries are already common in OSV data — a V4 vector must
+    decode (and never crash the scan)."""
+    sev = [{"type": "CVSS_V4",
+            "score": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"}]
+    assert _extract_cvss_score(sev) == 9.3
+    assert _extract_severity(sev) == "critical"
+
+
+def test_extract_cvss_score_invalid_vector_returns_none():
+    sev = [{"type": "CVSS_V3", "score": "CVSS:3.1/GARBAGE"}]
+    assert _extract_cvss_score(sev) is None
+    assert _extract_severity(sev) == "medium"

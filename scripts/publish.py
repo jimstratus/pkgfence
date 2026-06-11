@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from scripts.lib.logger import get_logger
+from scripts.lib.proc import run_capture
 
 log = get_logger(__name__)
 
@@ -160,11 +161,7 @@ def _ensure_remote_dir(
         f"mkdir -p {quoted_remote_dir}",
     ]
     try:
-        result = subprocess.run(
-            cmd, capture_output=True, text=True,
-            encoding="utf-8", errors="replace",
-            timeout=30, check=False,
-        )
+        result = run_capture(cmd, timeout=30)
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
         raise PublishError(f"mkdir-p failed: {e}") from e
     if result.returncode != 0:
@@ -220,11 +217,7 @@ def publish_run(
         for artifact in artifacts:
             cmd = _build_scp_command(artifact, sink, scanner_host)
             try:
-                result = subprocess.run(
-                    cmd, capture_output=True, text=True,
-                    encoding="utf-8", errors="replace",
-                    timeout=120, check=False,
-                )
+                result = run_capture(cmd, timeout=120)
             except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
                 log.warning("publish: scp %s -> %s failed: %s",
                             artifact.name, destination, e)

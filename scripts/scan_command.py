@@ -16,7 +16,6 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
 
 from scripts.discover import discover_manifests_full
@@ -27,7 +26,7 @@ from scripts.lib.ssh_runner import SSHRunner
 from scripts.enrich_threats import enrich_with_kev
 from scripts.lib.epss_client import EPSSClient
 from scripts.enrich_epss import enrich_with_epss
-from scripts.lib.priority import compute_priority_score
+from scripts.lib.priority import apply_priority_scores
 from scripts.triage import (
     dedup_findings,
     apply_mal_override,
@@ -40,15 +39,11 @@ from scripts.lib.baseline import save_baseline, load_baseline, diff_findings
 from scripts.lib.kev_client import KEVClient
 from scripts.lib.registry import load_registry, RegistryError
 from scripts.lib.remote_types import RemoteManifest
-from scripts.lib.config import load_defaults, DefaultsError
+from scripts.lib.config import load_defaults, DefaultsError, load_yaml
 from scripts.lib.exceptions import load_exceptions
-from scripts.lib.types import Finding
+from scripts.lib.types import Finding, SEVERITY_RANK, is_status_record
 from scripts.eol_detect import detect_eol_local, detect_eol_remote
-from scripts.installed_check import (
-    apply_installed_checks_local,
-    check_installed_remote,
-    apply_installed_demotion,
-)
+from scripts.installed_check import apply_installed_checks
 from scripts.lib.audit_log import append_audit_record
 from scripts.lib.sarif import findings_to_sarif
 from scripts.lib.logger import get_logger
@@ -75,8 +70,7 @@ def _load_exclusions_config(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
     try:
-        loader = YAML(typ="safe")
-        data = loader.load(path.read_text(encoding="utf-8"))
+        data = load_yaml(path)
         return data or {}
     except YAMLError as e:
         log.warning("exclusions parse failed at %s: %s", path, e)
@@ -121,7 +115,7 @@ def run_scan(
 
     # Layer 0: load config + registry
     try:
-        load_defaults()
+        defaults = load_defaults()
     except DefaultsError as e:
         print(f"Error loading defaults: {e}", file=sys.stderr)
         return 3, state_dir / "reports" / f"{run_id}-error.md"
@@ -217,54 +211,40 @@ def run_scan(
         )
     log.info("L2 total findings (local + remote): %d", len(findings))
 
-    # Remote is-installed checks (per SSH target)
-    for target in filtered_ssh:
-        target_findings = [
-            f for f in findings
-            if f.get("target") == target["name"] and f.get("status") != "SCAN_ERROR"
-        ]
-        for f in target_findings:
-            check_installed_remote(f, target_runners[target["name"]])
-            apply_installed_demotion(f)
-
     # Merge EOL findings before L3 so they flow through enrichment + triage
     findings.extend(eol_findings_local)
     findings.extend(eol_findings_remote)
 
-    # Layer 3: Threat enrichment
-    log.info("L3 threat enrichment starting")
+    # Layer 3: enrichment — one (client, enrich_fn, degraded_msg, stale_msg)
+    # entry per source (issue #20.1: adding deps.dev later = adding a tuple,
+    # not copying refresh/degraded plumbing). Clients refresh lazily on
+    # first lookup and degrade at most once per run.
+    log.info("L3 enrichment starting")
     degraded_modes: list[str] = []
     kev = KEVClient(cache_dir=state_dir / "cache" / "kev")
-    try:
-        kev.refresh()
-    except Exception as e:  # noqa: BLE001 — any refresh failure = degraded
-        log.warning("KEV refresh failed: %s", e)
-        degraded_modes.append(f"CISA KEV unreachable: {e}")
-    if getattr(kev, "is_degraded", False):
-        degraded_modes.append("CISA KEV feed degraded — exploit-status not enriched")
-    findings = enrich_with_kev(findings, kev)
-
-    # Layer 3.5: EPSS enrichment
     epss = EPSSClient(cache_dir=state_dir / "cache" / "epss")
-    try:
-        epss.refresh()
-    except Exception as e:  # noqa: BLE001
-        log.warning("EPSS refresh failed: %s", e)
-        degraded_modes.append(f"EPSS unreachable: {e}")
-    if getattr(epss, "is_degraded", False) and not any(
-        "EPSS" in m for m in degraded_modes
-    ):
-        degraded_modes.append("EPSS feed degraded — exploit-probability not enriched")
-    findings = enrich_with_epss(findings, epss)
-
-    # Compute priority_score on every finding (after all enrichment, before triage)
-    for f in findings:
-        f["priority_score"] = compute_priority_score(f)
+    enrichers = [
+        (kev, enrich_with_kev,
+         "CISA KEV feed degraded — exploit-status not enriched",
+         "CISA KEV feed stale — refresh failed, serving cached data"),
+        (epss, enrich_with_epss,
+         "EPSS feed degraded — exploit-probability not enriched",
+         "EPSS feed stale — refresh failed, serving cached data"),
+    ]
+    for client, enrich_fn, degraded_msg, stale_msg in enrichers:
+        findings = enrich_fn(findings, client)
+        if client.is_degraded:
+            degraded_modes.append(degraded_msg)
+        elif client.is_stale:
+            degraded_modes.append(stale_msg)
 
     # Layer 4: Triage
     log.info("L4 triage starting")
     findings = dedup_findings(findings)
-    findings = apply_mal_override(findings)
+    triage_cfg = (defaults.get("triage") or {})
+    findings = apply_mal_override(
+        findings, override_severity=triage_cfg.get("mal_prefix_override", "critical")
+    )
 
     exceptions_path = state_dir / "exceptions.yaml"
     exceptions = load_exceptions(exceptions_path)
@@ -273,8 +253,19 @@ def run_scan(
     exclusions_cfg = _load_exclusions_config(DEFAULT_EXCLUSIONS_PATH)
     findings = apply_exclusions(findings, exclusions_cfg)
 
-    local_manifest_paths = {m["path"] for m in manifests}
-    findings = apply_installed_checks_local(findings, local_manifest_paths)
+    # Unified installed-check stage (issue #20): one pipeline position for
+    # local and remote. Runs AFTER exclusions so not-installed demotions
+    # stay visible in the report (the shipped severity floor drops info),
+    # and BEFORE priority scoring so scores reflect demoted severities.
+    findings = apply_installed_checks(
+        findings,
+        local_manifest_paths={m["path"] for m in manifests},
+        remote_runners=target_runners,
+    )
+
+    # Priority scoring is the FINAL enrichment stage: it must see post-
+    # override, post-demotion severities (issue #11).
+    findings = apply_priority_scores(findings, defaults)
 
     findings = sort_findings(findings)
 
@@ -288,6 +279,7 @@ def run_scan(
     save_baseline(
         baseline_path,
         {
+            "run_id": run_id,
             "scan_timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "manifest_hashes": {
                 m["path"]: m.get("manifest_hash", "") for m in manifests
@@ -297,13 +289,10 @@ def run_scan(
     )
 
     # Exit code logic (computed before snapshot so it can be included in frontmatter)
-    fail_rank = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}.get(
-        fail_on, 0
-    )
-    sev_rank = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+    fail_rank = SEVERITY_RANK.get(fail_on, 0)
     has_failing = any(
-        sev_rank.get(f.get("severity", "medium"), 99) <= fail_rank
-        and f.get("status") != "SCAN_ERROR"
+        SEVERITY_RANK.get(f.get("severity", "medium"), 99) <= fail_rank
+        and not is_status_record(f)
         for f in findings
     )
     exit_code = 1 if has_failing else 0

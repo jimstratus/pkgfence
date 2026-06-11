@@ -10,7 +10,9 @@ from scripts.notify import (
     send_webhook,
     format_stdout_summary,
     main,
+    _build_webhook_payload,
 )
+from scripts.lib.baseline import save_baseline
 
 
 def _write_report(state_dir, run_id, findings_by_severity, targets=None):
@@ -102,7 +104,7 @@ def test_webhook_payload(tmp_path):
     result = check_for_new_findings(tmp_path, threshold="critical")
 
     from scripts.notify import _build_webhook_payload
-    payload = _build_webhook_payload(result, "critical")
+    payload = _build_webhook_payload(result, "critical", state_dir=tmp_path)
 
     with patch("scripts.notify.httpx.post") as mock_post:
         mock_post.return_value = MagicMock(status_code=200)
@@ -233,3 +235,71 @@ def test_get_two_latest_reports_returns_previous_and_current(tmp_path):
     prev, curr = pair
     assert prev.name == "20260409T060000Z-222.md"
     assert curr.name == "20260410T060000Z-333.md"
+
+
+def _write_report_min(state: Path, run_id: str, counts: dict) -> None:
+    fm = "\n".join(f"  {k}: {v}" for k, v in counts.items())
+    (state / "reports" / f"{run_id}.md").write_text(
+        f"---\nrun_id: {run_id}\nfindings_by_severity:\n{fm}\n"
+        f"ssh_targets: [bespin]\n---\n# Scan Report\n",
+        encoding="utf-8",
+    )
+
+
+def test_net_zero_churn_still_triggers(tmp_state):
+    """Issue #13: one critical fixed + one new critical = count delta 0,
+    but the baseline says NEW — must trigger."""
+    _write_report_min(tmp_state, "20260101T000000Z-aaaaaaaa", {"critical": 1})
+    _write_report_min(tmp_state, "20260102T000000Z-bbbbbbbb", {"critical": 1})
+    save_baseline(tmp_state / "baselines" / "default.json", {
+        "run_id": "20260102T000000Z-bbbbbbbb",
+        "findings": [
+            {"purl": "pkg:npm/new@1", "vuln_id": "CVE-2026-9", "severity": "critical",
+             "manifest_path": "/x", "diff_status": "NEW", "status": "OK"},
+            {"purl": "pkg:npm/old@1", "vuln_id": "CVE-2020-1", "severity": "high",
+             "manifest_path": "/x", "diff_status": "EXISTING", "status": "OK"},
+        ],
+    })
+    result = check_for_new_findings(tmp_state, threshold="critical")
+    assert result["triggered"] is True
+    assert result["new_findings"]["critical"] == 1
+
+
+def test_stale_baseline_falls_back_to_count_delta(tmp_state):
+    _write_report_min(tmp_state, "20260101T000000Z-aaaaaaaa", {"critical": 1})
+    _write_report_min(tmp_state, "20260102T000000Z-bbbbbbbb", {"critical": 3})
+    # baseline belongs to some OTHER run — must not be trusted
+    save_baseline(tmp_state / "baselines" / "default.json",
+                  {"run_id": "different-run", "findings": []})
+    result = check_for_new_findings(tmp_state, threshold="critical")
+    assert result["triggered"] is True
+    assert result["new_findings"]["critical"] == 2
+
+
+def test_webhook_report_path_respects_state_dir(tmp_state):
+    result = {"run_id": "r1", "new_findings": {}, "previous_run_id": "r0",
+              "targets": [], "summary": "s"}
+    payload = _build_webhook_payload(result, "critical", state_dir=tmp_state)
+    assert payload["report_path"] == str(tmp_state / "reports" / "r1.md")
+
+
+def test_severity_escalation_triggers_even_when_baseline_says_existing(tmp_state):
+    """Review follow-up to #13: a finding whose severity escalates between
+    runs stays diff_status=EXISTING (same purl/vuln_id/manifest_path), so the
+    baseline-NEW count is 0 — but the report count-delta shows the new
+    critical bucket. The max() of both signals must still trigger."""
+    _write_report_min(tmp_state, "20260101T000000Z-aaaaaaaa",
+                      {"critical": 0, "high": 1})
+    _write_report_min(tmp_state, "20260102T000000Z-bbbbbbbb",
+                      {"critical": 1, "high": 0})
+    save_baseline(tmp_state / "baselines" / "default.json", {
+        "run_id": "20260102T000000Z-bbbbbbbb",
+        "findings": [
+            # Same identity as last run, only severity escalated → EXISTING.
+            {"purl": "pkg:npm/x@1", "vuln_id": "CVE-2026-1", "severity": "critical",
+             "manifest_path": "/x", "diff_status": "EXISTING", "status": "OK"},
+        ],
+    })
+    result = check_for_new_findings(tmp_state, threshold="critical")
+    assert result["triggered"] is True
+    assert result["new_findings"]["critical"] == 1

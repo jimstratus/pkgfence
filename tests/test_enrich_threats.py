@@ -1,4 +1,5 @@
 """Tests for threat enrichment overlays."""
+from unittest.mock import MagicMock
 from scripts.lib.kev_client import KEVClient
 from scripts.lib.types import new_finding
 
@@ -58,3 +59,26 @@ def test_enrich_with_kev_checks_aliases_for_cve_id():
 
     enriched = enrich_with_kev(findings, kev)
     assert enriched[0]["actively_exploited"] is True
+
+
+def test_kev_enrichment_leaves_scan_error_records_unchanged():
+    from scripts.enrich_threats import enrich_with_kev
+    kev = MagicMock()
+    f = {"purl": "pkg:scan-error/bespin@-", "vuln_id": "SCAN_ERROR",
+         "severity": "info", "manifest_path": "/x", "target": "bespin",
+         "status": "SCAN_ERROR"}
+    result = enrich_with_kev([f], kev)
+    assert "actively_exploited" not in result[0]
+    kev.is_known_exploited.assert_not_called()
+
+
+def test_enrich_with_kev_tolerates_non_string_aliases():
+    """Issue #18.5 drift fix: a non-string alias (malformed scanner output)
+    must NOT crash KEV enrichment — iter_vuln_ids skips it."""
+    from scripts.enrich_threats import enrich_with_kev
+    kev = MagicMock()
+    kev.is_known_exploited.side_effect = lambda v: v == "CVE-2024-1"
+    f = {"vuln_id": "GHSA-1", "aliases": ["CVE-2024-1", None, 42, ""],
+         "status": "OK"}
+    result = enrich_with_kev([f], kev)
+    assert result[0]["actively_exploited"] is True  # found via the valid CVE

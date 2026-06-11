@@ -46,7 +46,7 @@ Core application code implementing the L1-L4 scanning pipeline plus CLI entry po
 
 ### Common Patterns
 - `encoding="utf-8", errors="replace"` on every `subprocess.run` call
-- `shlex.quote()` for any value passing through a remote shell
+- `SSHRunner` shell-quotes every remote argument centrally — callers must NOT pre-quote or pre-escape (pass bare `(` `)` for find grouping)
 - Findings are `list[Finding]` (TypedDict from `lib/types.py`) — not raw dicts
 - Remote manifests are `list[RemoteManifest]` (TypedDict from `lib/remote_types.py`)
 - SCAN_ERROR findings flow through unchanged — never filter or block on them

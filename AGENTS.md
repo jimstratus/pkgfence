@@ -12,7 +12,7 @@ Current release: **v0.3.0** (Phase 3a: EPSS enrichment + Triple-Score ranking).
 | File | Description |
 |------|-------------|
 | `pyproject.toml` | Project manifest — entry point is `scripts.scan_command:main`, Python >=3.11 |
-| `CHANGELOG.md` | Release history, v0.2.0 at top |
+| `CHANGELOG.md` | Release history, v0.3.0 at top |
 | `README.md` | User-facing documentation |
 | `SKILL.md` | Claude Code skill definition for invoking pkgfence from other projects |
 | `LICENSE` | MIT license |
@@ -22,7 +22,7 @@ Current release: **v0.3.0** (Phase 3a: EPSS enrichment + Triple-Score ranking).
 | Directory | Purpose |
 |-----------|---------|
 | `scripts/` | Core application code — L1-L4 pipeline modules + CLI (see `scripts/AGENTS.md`) |
-| `tests/` | 179 pytest tests — unit, integration, safety invariants (see `tests/AGENTS.md`) |
+| `tests/` | 341 pytest tests — unit, integration, safety invariants (see `tests/AGENTS.md`) |
 | `config/` | Registry schema, defaults, exclusions (see `config/AGENTS.md`) |
 | `planning/` | Phase plans, dogfood reports, handoff docs (see `planning/AGENTS.md`) |
 | `references/` | Scanner docs, threat-intel API refs, workflow docs (see `references/AGENTS.md`) |
@@ -50,7 +50,7 @@ Current release: **v0.3.0** (Phase 3a: EPSS enrichment + Triple-Score ranking).
 **If any safety invariant test fails, the tool is broken and must NOT be run until fixed.**
 
 ### Testing Requirements
-- Run `pytest` (179 tests) before any commit
+- Run `pytest` (341 tests) before any commit
 - Safety invariant tests (`test_safety_invariants.py`, `test_s4_no_remote_content_exfil.py`) are non-negotiable
 - Use `patch("scripts.<module>.subprocess.run")` — never bare `patch("subprocess.run")`
 - No inline imports in test bodies — always module-level

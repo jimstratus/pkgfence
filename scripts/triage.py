@@ -7,7 +7,7 @@ Phase 1 scope (this file is built up across Tasks 10.1-10.5):
 - 10.4: deterministic sort
 - 10.5: hardcoded exclusions list
 """
-from scripts.lib.types import Finding
+from scripts.lib.types import Finding, is_status_record, SEVERITY_RANK, iter_vuln_ids
 
 
 def dedup_findings(findings: list[Finding]) -> list[Finding]:
@@ -15,6 +15,9 @@ def dedup_findings(findings: list[Finding]) -> list[Finding]:
     seen: set[tuple[str, str]] = set()
     result: list[Finding] = []
     for f in findings:
+        if is_status_record(f):
+            result.append(f)  # status records are never deduped (issue #10)
+            continue
         key = (f.get("purl", ""), f.get("vuln_id", ""))
         if key in seen:
             continue
@@ -23,20 +26,22 @@ def dedup_findings(findings: list[Finding]) -> list[Finding]:
     return result
 
 
-def apply_mal_override(findings: list[Finding]) -> list[Finding]:
+def apply_mal_override(
+    findings: list[Finding], override_severity: str = "critical"
+) -> list[Finding]:
     """Round 2 finding R2-9: MAL-* prefix indicates a malicious package
     record from OpenSSF Malicious Packages. Bypass severity triage and
     override to critical regardless of CVSS.
 
     Critic gap fix: check BOTH the primary id field AND the aliases[]
     array. Many findings have a primary GHSA id with the MAL-* in aliases.
+
+    Override severity comes from config/defaults.yaml triage.mal_prefix_override
+    (issue #14).
     """
     for f in findings:
-        primary = f.get("vuln_id", "")
-        aliases = f.get("aliases", [])
-        all_ids = [primary] + list(aliases)
-        if any(vid.startswith("MAL-") for vid in all_ids if vid):
-            f["severity"] = "critical"
+        if any(vid.startswith("MAL-") for vid in iter_vuln_ids(f)):
+            f["severity"] = override_severity
             f["mal_flagged"] = True
             f["remediation"] = (
                 "Remove this package immediately — it is flagged as "
@@ -69,6 +74,8 @@ def apply_exceptions(
         return findings
 
     def is_suppressed(f: Finding) -> bool:
+        if is_status_record(f):
+            return False  # status records flow through, never suppressed (issue #10)
         for exc in active:
             if exc.get("vuln_id") != f.get("vuln_id"):
                 continue
@@ -78,9 +85,6 @@ def apply_exceptions(
         return False
 
     return [f for f in findings if not is_suppressed(f)]
-
-
-SEVERITY_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
 
 
 def sort_findings(findings: list[Finding]) -> list[Finding]:
@@ -114,7 +118,7 @@ def apply_exclusions(findings: list[Finding], config: dict) -> list[Finding]:
     excluded_cats = set(config.get("exclude_categories", []))
 
     def keep(f: Finding) -> bool:
-        if f.get("status") == "SCAN_ERROR":
+        if is_status_record(f):
             return True
         sev_rank = SEVERITY_RANK.get(f.get("severity", "medium"), 2)
         if sev_rank > floor_rank:

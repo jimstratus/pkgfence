@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Install (editable, with dev deps) — use the venv
 .venv/Scripts/python.exe -m pip install -e ".[dev]"
 
-# Run all tests (179 tests)
+# Run all tests (341 tests)
 .venv/Scripts/python.exe -m pytest -v --strict-markers
 
 # Run a single test file
@@ -36,12 +36,12 @@ L1 Discovery → L2 Scanner → L3 Enrichment → L4 Triage → Output → Publi
 ```
 
 Each layer has a local and remote variant:
-- **L1:** `discover.py` (local) / `discover_remote.py` (SSH)
-- **L2:** `scan_local.py` (local) / `scan_remote.py` (SSH)
-- **L3:** `enrich_threats.py` — CISA KEV correlation
-- **L4:** `triage.py` — dedup, MAL-* override, exceptions, exclusions, severity sort
+- **L1:** `discover.py` (local) / `discover_remote.py` (SSH) / `eol_detect.py` (EOL catalog)
+- **L2:** `scan_local.py` (local) / `scan_remote.py` (SSH) — CVSS vectors decoded via the `cvss` package
+- **L3:** `enrich_threats.py` (CISA KEV) + `enrich_epss.py` (EPSS) via a data-driven enricher loop
+- **L4:** `triage.py` (dedup, MAL-* override, exceptions, exclusions, sort) + `installed_check.py` (demotion) + `lib/priority.py` (triple-score — the FINAL stage, after override/demotion)
 
-`scan_command.py:run_scan()` orchestrates everything: loads registry, runs L1-L4, writes markdown+SARIF+JSONL output, saves baseline, publishes via SCP sink.
+`scan_command.py:run_scan()` orchestrates everything: loads registry, runs L1-L4, writes markdown+SARIF+JSONL output, saves baseline, publishes via SCP sink. Full diagrams: `docs/ARCHITECTURE.md`.
 
 **Core data type:** `Finding` TypedDict in `scripts/lib/types.py` flows through every stage. Use TypedDicts (not dataclasses) — they roundtrip through JSON/YAML trivially.
 
@@ -72,7 +72,9 @@ If any safety test fails, the tool is broken and must NOT be used.
 
 **POSIX ACL mask trap on Plesk hosts:** When setting default ACLs for scanner read access, ALWAYS include `mask::rwx` — e.g., `setfacl -R -d -m u:scanuser:rX,mask::rwx /var/www`. Without it, the default mask recomputes to `r-x`, stripping group write from PHP-FPM sockets and breaking all websites. See `references/workflows/ssh-mode.md` Pattern A1.
 
-**Remote shell escaping:** Arguments in SSH commands go through the remote shell. Use `shlex.quote()` for any user-controlled values. Use `"\\("` / `"\\)"` for find's grouping operators.
+**Remote shell escaping:** `SSHRunner` shell-quotes every argument centrally
+(`shlex.quote`) before it reaches the remote login shell — callers must NOT
+pre-quote or pre-escape. Pass find's grouping operators as bare `"("` / `")"`.
 
 **YAML round-trip:** Use `YAML(typ="rt")` when dict insertion order matters (frontmatter, registry). Never use `typ="safe"` — it sorts keys alphabetically.
 
@@ -80,7 +82,7 @@ If any safety test fails, the tool is broken and must NOT be used.
 
 - **One test file per source module:** `test_<module>.py`
 - **All imports at module level** — never inline imports inside test functions
-- **Mock subprocess as `patch("scripts.<module>.subprocess.run")`** — never bare `patch("subprocess.run")` (breaks if module uses `from subprocess import run`)
+- **Mock subprocess as `patch("scripts.lib.proc.subprocess.run")`** — all modules route through `lib/proc.run_capture`
 - **Use `tmp_state` and `tmp_registry` fixtures** from `conftest.py` for isolation
 - **Remote module tests:** inject `MagicMock` SSHRunners via function params, don't patch globally
 
@@ -94,4 +96,4 @@ If any safety test fails, the tool is broken and must NOT be used.
 
 ## Current Release
 
-v0.2.0 — Phase 1 (local scan) + Phase 2 (SSH remote scan + publish). See `planning/phase3-inputs.md` for next-phase context.
+v0.3.0 — Phase 3a (EPSS + triple-score ranking) on top of Phase 1 (local scan) + Phase 2 (SSH remote scan + publish), plus the #7–#20 security/correctness hardening pass. See `docs/ARCHITECTURE.md` for the current architecture and `planning/phase3-inputs.md` for next-phase context.

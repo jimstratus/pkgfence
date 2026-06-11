@@ -13,7 +13,7 @@ from pathlib import Path, PurePosixPath
 from urllib.parse import unquote
 
 from scripts.lib.ssh_runner import SSHRunner, SSHUnreachableError
-from scripts.lib.types import Finding
+from scripts.lib.types import Finding, is_status_record
 
 
 def _extract_package_name(purl: str) -> str:
@@ -92,59 +92,77 @@ def apply_installed_demotion(finding: Finding) -> Finding:
     return finding
 
 
-def apply_installed_checks_local(
-    findings: list[Finding],
-    local_manifest_paths: set[str] | None = None,
-) -> list[Finding]:
-    """Run is-installed check + demotion on local findings.
-
-    If *local_manifest_paths* is provided, only findings whose manifest_path
-    is in that set are checked (skips remote SSH findings that share the same
-    pipeline but have paths on a different machine).
-    """
-    for f in findings:
-        if f.get("status") == "SCAN_ERROR":
-            continue
-        if local_manifest_paths is not None and f.get("manifest_path") not in local_manifest_paths:
-            continue
-        check_installed_local(f)
-        apply_installed_demotion(f)
-    return findings
-
-
-def check_installed_remote(finding: Finding, runner: SSHRunner) -> Finding:
-    """Check whether the package in *finding* is installed on the remote host.
-
-    Uses ``runner.run_with_rc(["stat", install_path])`` — rc=0 means installed,
-    rc≠0 means not installed.
-
-    On SSHUnreachableError: returns the finding unchanged (unknown state,
-    do not demote). For unsupported ecosystems (pip, etc.): returns unchanged.
-
-    Uses PurePosixPath for remote paths (safe on Windows hosts too).
-    """
+def _install_path_for(finding: Finding) -> str | None:
+    """POSIX install-dir for the finding's package, anchored at the
+    manifest's directory; None for unsupported ecosystems (pip etc.)."""
     manifest_path = finding.get("manifest_path", "")
     lockfile = _lockfile_name(manifest_path)
     manifest_dir = PurePosixPath(manifest_path).parent
-
+    pkg_name = _extract_package_name(finding.get("purl", ""))
     if lockfile == "package-lock.json":
-        pkg_name = _extract_package_name(finding.get("purl", ""))
-        install_path = str(manifest_dir / "node_modules" / pkg_name)
-    elif lockfile == "composer.lock":
-        pkg_name = _extract_package_name(finding.get("purl", ""))
+        return str(manifest_dir / "node_modules" / pkg_name)
+    if lockfile == "composer.lock":
         parts = pkg_name.split("/", 1)
         if len(parts) == 2:
-            install_path = str(manifest_dir / "vendor" / parts[0] / parts[1])
-        else:
-            install_path = str(manifest_dir / "vendor" / pkg_name)
-    else:
-        # Unsupported ecosystem (pip, cargo, etc.) — leave finding unchanged
-        return finding
+            return str(manifest_dir / "vendor" / parts[0] / parts[1])
+        return str(manifest_dir / "vendor" / pkg_name)
+    return None
 
+
+def check_installed_remote_batch(
+    findings: list[Finding], runner: SSHRunner
+) -> list[Finding]:
+    """Set finding['installed'] for a batch of same-target findings using
+    ONE `ls -d path1 path2 ...` round-trip (issue #19.1) instead of one
+    stat session per finding. `ls -d` prints existing paths to stdout and
+    errors for missing ones — rc is ignored, stdout is the answer.
+
+    On SSHUnreachableError: findings stay unchanged (unknown state, never
+    demote on no-evidence)."""
+    by_path: list[tuple[Finding, str]] = []
+    for f in findings:
+        install_path = _install_path_for(f)
+        if install_path:
+            by_path.append((f, install_path))
+    unique_paths = sorted({p for _, p in by_path})
+    if not unique_paths:
+        return findings
+    CHUNK = 100  # bound remote argv length (same bound as discovery hashing)
+    existing: set[str] = set()
     try:
-        _stdout, rc = runner.run_with_rc(["stat", install_path])
-        finding["installed"] = rc == 0
+        for i in range(0, len(unique_paths), CHUNK):
+            stdout, _rc = runner.run_with_rc(
+                ["ls", "-d"] + unique_paths[i:i + CHUNK])
+            existing.update(
+                line.strip() for line in stdout.splitlines() if line.strip())
     except SSHUnreachableError:
-        pass  # Unknown state — do not set installed field
+        return findings
+    for f, p in by_path:
+        f["installed"] = p in existing
+    return findings
 
-    return finding
+
+def apply_installed_checks(
+    findings: list[Finding],
+    local_manifest_paths: set[str],
+    remote_runners: dict[str, SSHRunner],
+) -> list[Finding]:
+    """Single installed-check stage for local AND remote findings
+    (issue #20.2 — previously remote ran at L2b and local at L4, producing
+    divergent outcomes for identical findings). Local findings are checked
+    via Path.exists, remote via one batched ls -d per target; demotion then
+    applies identically to both."""
+    remote_by_target: dict[str, list[Finding]] = {}
+    for f in findings:
+        if is_status_record(f):
+            continue
+        if f.get("manifest_path") in local_manifest_paths:
+            check_installed_local(f)
+        elif f.get("target") in remote_runners:
+            remote_by_target.setdefault(f["target"], []).append(f)
+    for target, target_findings in remote_by_target.items():
+        check_installed_remote_batch(target_findings, remote_runners[target])
+    for f in findings:
+        if not is_status_record(f):
+            apply_installed_demotion(f)
+    return findings

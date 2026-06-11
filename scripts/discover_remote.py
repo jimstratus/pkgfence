@@ -2,8 +2,11 @@
 host and yield RemoteManifest records.
 
 Uses only S3-allowlisted commands:
-    find <discover_paths> -maxdepth N -type f \\( -name 'package-lock.json' -o ... \\)
-    sha256sum <path>
+    find <discover_paths> -maxdepth N -type f ( -name 'package-lock.json' -o ... )
+
+Grouping parens are passed BARE — SSHRunner shlex-quotes every argument
+centrally before the remote shell sees it (issue #7).
+    sha256sum <path1> <path2> ...   (manifests hashed in chunked batches, issue #19.2)
 
 Never retrieves manifest contents. Never writes anything. Path + hash only.
 """
@@ -20,6 +23,10 @@ log = get_logger(__name__)
 # Max depth for remote find — keep reasonable for vhost-style layouts
 REMOTE_MAX_DEPTH = 6
 
+# Maximum number of paths passed to a single remote sha256sum invocation.
+# Bounds remote argv length; keeps each SSH round-trip manageable.
+CHUNK = 100
+
 
 def _build_find_command(discover_paths: list[str]) -> list[str]:
     """Build a `find` argv that matches all known manifest filenames,
@@ -29,25 +36,25 @@ def _build_find_command(discover_paths: list[str]) -> list[str]:
 
     # Prune group: skip DEFAULT_EXCLUDES directories.
     # Sort for deterministic argv (DEFAULT_EXCLUDES is a frozenset).
-    cmd += ["\\("]
+    cmd += ["("]
     first = True
     for exc in sorted(DEFAULT_EXCLUDES):
         if not first:
             cmd += ["-o"]
         cmd += ["-name", exc]
         first = False
-    cmd += ["\\)", "-prune", "-o"]
+    cmd += [")", "-prune", "-o"]
 
     # Match group: files with manifest filenames, with explicit -print
     # so pruned directories are not printed by the default action.
-    cmd += ["-type", "f", "\\("]
+    cmd += ["-type", "f", "("]
     first = True
     for name in MANIFEST_ECOSYSTEM:
         if not first:
             cmd += ["-o"]
         cmd += ["-name", name]
         first = False
-    cmd += ["\\)", "-print"]
+    cmd += [")", "-print"]
     return cmd
 
 
@@ -66,11 +73,10 @@ def discover_remote_manifests(
 
     Raises:
         SSHUnreachableError: if the remote host becomes unreachable during
-            the find call OR mid-iteration during sha256sum calls. Because
-            this is a generator, some records may have already been yielded
-            when the exception raises. Callers should wrap the full
-            list(...) call to handle partial results correctly — see
-            discover_remote_safely() in Task 7 for the canonical pattern.
+            the find call or during any sha256sum chunk call. Because all
+            hashing is done eagerly (before any yield), an error during the
+            hash phase means no records are yielded for this target. Callers
+            should use discover_remote_safely() for SCAN_ERROR handling.
     """
     discover_paths = target.get("discover_paths") or []
     if not discover_paths:
@@ -87,28 +93,37 @@ def discover_remote_manifests(
     log.info("ssh target %s: find returned %d manifest candidates",
              target.get("name"), len(paths))
 
+    # Pair each find line with its ecosystem; drop non-manifest lines and
+    # paths carrying control chars (SSHRunner would reject them anyway).
+    known: list[tuple[str, str]] = []
     for path in paths:
-        filename = path.rsplit("/", 1)[-1]
-        ecosystem = MANIFEST_ECOSYSTEM.get(filename)
-        if ecosystem is None:
-            continue  # shouldn't happen given the find filter, but be defensive
-
-        # Hash this manifest via sha256sum
-        try:
-            hash_output = runner.run(["sha256sum", path])
-        except SSHUnreachableError:
-            raise
-        # sha256sum output: "<hash>  <path>\n"
-        hash_hex = hash_output.strip().split(None, 1)[0] if hash_output.strip() else ""
-
-        # Defensive: sha256 must be 64 hex chars. A non-matching value means
-        # sha256sum output was in an unexpected format (e.g. BSD-style
-        # "SHA256 (path) = hash"). Log and skip rather than storing garbage.
-        if not re.fullmatch(r"[0-9a-f]{64}", hash_hex):
-            log.warning("ssh target %s: sha256sum for %s returned unexpected format; skipping",
+        if "\r" in path or "\x00" in path:
+            log.warning("ssh target %s: skipping path with control chars: %r",
                         target.get("name"), path)
             continue
+        ecosystem = MANIFEST_ECOSYSTEM.get(path.rsplit("/", 1)[-1])
+        if ecosystem is not None:
+            known.append((path, ecosystem))
 
+    # Hash ALL manifests in chunked sha256sum calls (issue #19.2: one SSH
+    # session per file was a full TCP+auth handshake each). sha256sum
+    # prints "<hash>  <path>" per readable file and errors on stderr for
+    # missing ones — stdout is the answer, rc is irrelevant.
+    hashes: dict[str, str] = {}
+    for i in range(0, len(known), CHUNK):
+        chunk_paths = [p for p, _ in known[i:i + CHUNK]]
+        hash_output = runner.run(["sha256sum"] + chunk_paths)
+        for line in hash_output.splitlines():
+            parts = line.strip().split(None, 1)
+            if len(parts) == 2 and re.fullmatch(r"[0-9a-f]{64}", parts[0]):
+                hashes[parts[1]] = parts[0]
+
+    for path, ecosystem in known:
+        hash_hex = hashes.get(path)
+        if not hash_hex:
+            log.warning("ssh target %s: no valid sha256 for %s; skipping",
+                        target.get("name"), path)
+            continue
         yield {
             "target": target["name"],
             "host": target["host"],

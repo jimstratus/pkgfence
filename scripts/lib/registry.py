@@ -8,6 +8,8 @@ import jsonschema
 from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
 
+from scripts.lib.config import load_yaml
+
 
 SKILL_ROOT = Path(__file__).parent.parent.parent
 SCHEMA_PATH = SKILL_ROOT / "config" / "registry.schema.yaml"
@@ -20,12 +22,9 @@ class RegistryError(Exception):
 _yaml = YAML(typ="rt")  # round-trip preserves comments
 _yaml.preserve_quotes = True
 
-# Separate safe loader for the schema file (no comment preservation needed)
-_yaml_safe = YAML(typ="safe")
-
 
 def _load_schema() -> dict:
-    return _yaml_safe.load(SCHEMA_PATH.read_text())
+    return load_yaml(SCHEMA_PATH)
 
 
 def load_registry(path: Path) -> dict[str, Any]:

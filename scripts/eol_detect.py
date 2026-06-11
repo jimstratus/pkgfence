@@ -7,11 +7,10 @@ do NOT add DEFAULT_EXCLUDES here.
 import logging
 import os
 import re
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
-from ruamel.yaml import YAML
-
+from scripts.lib.config import load_yaml
 from scripts.lib.ssh_runner import SSHRunner, SSHUnreachableError
 from scripts.lib.types import Finding, new_finding
 
@@ -20,13 +19,13 @@ log = logging.getLogger(__name__)
 SKILL_ROOT = Path(__file__).parent.parent
 EOL_CATALOG_PATH = SKILL_ROOT / "config" / "eol-catalog.yaml"
 
-_yaml = YAML(typ="rt")
-
 
 def load_eol_catalog() -> list[dict[str, Any]]:
-    """Load the EOL software catalog from config/eol-catalog.yaml."""
-    data = _yaml.load(EOL_CATALOG_PATH.read_text(encoding="utf-8"))
-    return list(data)
+    """Load the EOL software catalog from config/eol-catalog.yaml.
+
+    The catalog is read-only (never round-tripped back to disk), so the
+    shared safe loader is the single source of truth (issue #18.4)."""
+    return list(load_yaml(EOL_CATALOG_PATH) or [])
 
 
 def _parse_version(version_str: str) -> tuple[int, ...]:
@@ -84,15 +83,27 @@ def detect_eol_local(root_paths: list[str]) -> list[Finding]:
 
     for root in root_paths:
         for dirpath, dirnames, filenames in os.walk(root):
+            filename_set = set(filenames)
+            dirname_set = set(dirnames)
             for entry in catalog:
                 detect = entry.get("detect", {})
                 detect_file = detect.get("file", "")
                 path_contains = detect.get("path_contains")
 
-                # Check if the fingerprint file exists in this directory
-                # For entries like "wp-includes/version.php", the detect.file
-                # is a relative path — we check if the full relative path exists
-                # anchored at dirpath.
+                # Cheap pre-filter from the walk's own listing (issue #19.4:
+                # blind is_file() per dir×entry ≈ millions of stats on a
+                # large tree). Single-component detect files must appear in
+                # filenames; multi-component ones need their first directory
+                # component present in dirnames.
+                parts = Path(detect_file).parts if detect_file else ()
+                if not parts:
+                    continue
+                if len(parts) == 1:
+                    if parts[0] not in filename_set:
+                        continue
+                elif parts[0] not in dirname_set:
+                    continue
+
                 fingerprint_path = Path(dirpath) / detect_file
                 if not fingerprint_path.is_file():
                     continue
@@ -101,17 +112,7 @@ def detect_eol_local(root_paths: list[str]) -> list[Finding]:
                 if path_contains and path_contains.lower() not in dirpath.lower():
                     continue
 
-                # Determine the installation root: strip the detect_file subpath
-                # from dirpath so that version_file is resolved relative to root.
-                # e.g. detect.file = "wp-includes/version.php", dirpath = "/var/www"
-                # -> installation root = /var/www (dirpath itself, not a subdir)
-                detect_file_parts = Path(detect_file).parts
-                if len(detect_file_parts) > 1:
-                    # The detect file is in a subdirectory — installation root is dirpath
-                    install_root = dirpath
-                else:
-                    # The detect file is directly in the dir — installation root is dirpath
-                    install_root = dirpath
+                install_root = dirpath
 
                 version = _read_version(install_root, entry)
                 if version is None:
@@ -144,7 +145,7 @@ def _build_eol_find_command(
     """Build a `find` argv matching all catalog detect.file patterns."""
     cmd = ["find"] + list(discover_paths)
     cmd += ["-maxdepth", "6"]
-    cmd += ["\\("]
+    cmd += ["("]
     first = True
     for entry in catalog:
         detect_file = entry.get("detect", {}).get("file", "")
@@ -157,8 +158,27 @@ def _build_eol_find_command(
             cmd += ["-o"]
         cmd += ["-name", filename]
         first = False
-    cmd += ["\\)", "-print"]
+    cmd += [")", "-print"]
     return cmd
+
+
+# A version string is a short token like "9.0.0" / "6.4.2-alpha1" — never a
+# multi-line blob. Caps the S4a exfil channel: at most one version-shaped
+# token can transit, not arbitrary file contents.
+_VERSION_RE = re.compile(r"[0-9A-Za-z._+~-]{1,64}")
+
+
+def _is_safe_remote_version_path(version_path: str, discover_paths: list[str]) -> bool:
+    """True only if version_path is absolute, has no traversal segments,
+    and sits under one of the configured discover_paths. find-derived
+    directories are remote-controlled input — never cat outside the roots
+    we were told to scan (issue #8)."""
+    p = PurePosixPath(version_path)
+    if not p.is_absolute():
+        return False
+    if ".." in p.parts:  # pathlib strips "." segments; ".." survives
+        return False
+    return any(p.is_relative_to(PurePosixPath(root)) for root in discover_paths)
 
 
 def detect_eol_remote(
@@ -173,9 +193,13 @@ def detect_eol_remote(
     reads each matched installation's version_file via `cat`. Version strings
     are compared against eol_before to emit Findings.
 
-    S4 scoped exception: cat is used to read version files derived solely from
-    catalog-defined version_file patterns — never from user input or discovery
-    output. Task 10 adds the safety test for this boundary.
+    S4 scoped exception (S4a): cat reads version files whose directory comes
+    from remote `find` output. That path is therefore remote-controlled, so it
+    is validated to stay under discover_paths, and the extracted version must
+    match a strict version-token pattern before it is used. Residual risk: the
+    containment is lexical — a symlink under discover_paths can still point
+    elsewhere — but the version-token cap bounds what can transit to one short
+    token, not file contents. See issue #8.
 
     Args:
         discover_paths: Remote paths to search (e.g. ["/var/www"]).
@@ -242,6 +266,15 @@ def detect_eol_remote(
 
             version_path = install_root.rstrip("/") + "/" + version_file
 
+            if not _is_safe_remote_version_path(version_path, discover_paths):
+                # %r on the remote-controlled path so log-escape control
+                # chars can't forge terminal/log output (review follow-up).
+                log.warning(
+                    "EOL remote scan: refusing to read %r on %s (outside discover_paths)",
+                    version_path, target_name,
+                )
+                continue
+
             try:
                 cat_output = runner.run(["cat", version_path])
             except SSHUnreachableError as e:
@@ -256,12 +289,25 @@ def detect_eol_remote(
             if version_regex:
                 m = re.search(version_regex, cat_output)
                 if not m:
-                    continue  # malformed — skip silently
+                    log.warning(
+                        "EOL remote scan: %s on %s did not match version_regex "
+                        "for %s; skipping", version_path, target_name, entry["name"],
+                    )
+                    continue
                 version = m.group(1).strip()
             else:
-                version = cat_output.strip()
-
-            if not version:
+                # Plain version file — take only the FIRST line, and only
+                # if it looks like a version token (S4a containment).
+                first_line = cat_output.strip().splitlines()[0].strip()
+                version = first_line
+            # Must be a version-shaped token AND contain a digit — a digit-free
+            # token ("---") parses to (0,) and would forge a noise EOL finding.
+            if (not version or not _VERSION_RE.fullmatch(version)
+                    or not any(c.isdigit() for c in version)):
+                log.warning(
+                    "EOL remote scan: %s on %s (%s) did not yield a version-shaped "
+                    "string; skipping", version_path, target_name, entry["name"],
+                )
                 continue
 
             eol_before = entry.get("eol_before")

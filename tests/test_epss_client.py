@@ -1,10 +1,9 @@
 import gzip
 import os
 import time
-from pathlib import Path
+from unittest.mock import patch, MagicMock
 
 import httpx
-import pytest
 
 from scripts.lib.epss_client import EPSSClient
 
@@ -19,12 +18,18 @@ def _make_epss_csv_gz() -> bytes:
     return gzip.compress(csv.encode("utf-8"))
 
 
+def _allowed_url(mocker):
+    """A post-redirect URL on the allowlisted EPSS host (passes _validate_response)."""
+    return mocker.MagicMock(host="epss.empiricalsecurity.com", scheme="https")
+
+
 def test_refresh_downloads_and_caches(tmp_path, mocker):
     cache_dir = tmp_path / "epss"
     blob = _make_epss_csv_gz()
     mock_resp = mocker.MagicMock(status_code=200, content=blob)
-    mock_resp.url = mocker.MagicMock(host="epss.empiricalsecurity.com")
-    mocker.patch("scripts.lib.epss_client.httpx.Client.get", return_value=mock_resp)
+    mock_resp.url = _allowed_url(mocker)
+    # httpx.Client is constructed in FeedCacheClient.refresh, so patch there.
+    mocker.patch("scripts.lib.feed_cache.httpx.Client.get", return_value=mock_resp)
 
     client = EPSSClient(cache_dir=cache_dir)
     client.refresh()
@@ -36,8 +41,8 @@ def test_refresh_downloads_and_caches(tmp_path, mocker):
 def test_lookup_returns_none_for_missing_cve(tmp_path, mocker):
     blob = _make_epss_csv_gz()
     mock_resp = mocker.MagicMock(status_code=200, content=blob)
-    mock_resp.url = mocker.MagicMock(host="epss.empiricalsecurity.com")
-    mocker.patch("scripts.lib.epss_client.httpx.Client.get", return_value=mock_resp)
+    mock_resp.url = _allowed_url(mocker)
+    mocker.patch("scripts.lib.feed_cache.httpx.Client.get", return_value=mock_resp)
 
     client = EPSSClient(cache_dir=tmp_path / "epss")
     client.refresh()
@@ -50,7 +55,7 @@ def test_refresh_uses_cache_when_fresh(tmp_path, mocker):
     cache_file = cache_dir / "epss_scores-current.csv.gz"
     cache_file.write_bytes(_make_epss_csv_gz())
 
-    mock_get = mocker.patch("scripts.lib.epss_client.httpx.Client.get")
+    mock_get = mocker.patch("scripts.lib.feed_cache.httpx.Client.get")
     client = EPSSClient(cache_dir=cache_dir)
     client.refresh()
 
@@ -67,8 +72,8 @@ def test_refresh_redownloads_when_stale(tmp_path, mocker):
     os.utime(cache_file, (old_time, old_time))
 
     mock_resp = mocker.MagicMock(status_code=200, content=_make_epss_csv_gz())
-    mock_resp.url = mocker.MagicMock(host="epss.empiricalsecurity.com")
-    mock_get = mocker.patch("scripts.lib.epss_client.httpx.Client.get", return_value=mock_resp)
+    mock_resp.url = _allowed_url(mocker)
+    mock_get = mocker.patch("scripts.lib.feed_cache.httpx.Client.get", return_value=mock_resp)
 
     client = EPSSClient(cache_dir=cache_dir)
     client.refresh()
@@ -77,7 +82,7 @@ def test_refresh_redownloads_when_stale(tmp_path, mocker):
 
 def test_refresh_sets_degraded_on_http_error(tmp_path, mocker):
     mocker.patch(
-        "scripts.lib.epss_client.httpx.Client.get",
+        "scripts.lib.feed_cache.httpx.Client.get",
         side_effect=httpx.HTTPError("network error"),
     )
     client = EPSSClient(cache_dir=tmp_path / "epss")
@@ -89,8 +94,8 @@ def test_refresh_sets_degraded_on_http_error(tmp_path, mocker):
 def test_feed_timestamp_returned_after_refresh(tmp_path, mocker):
     blob = _make_epss_csv_gz()
     mock_resp = mocker.MagicMock(status_code=200, content=blob)
-    mock_resp.url = mocker.MagicMock(host="epss.empiricalsecurity.com")
-    mocker.patch("scripts.lib.epss_client.httpx.Client.get", return_value=mock_resp)
+    mock_resp.url = _allowed_url(mocker)
+    mocker.patch("scripts.lib.feed_cache.httpx.Client.get", return_value=mock_resp)
 
     client = EPSSClient(cache_dir=tmp_path / "epss")
     client.refresh()
@@ -103,14 +108,72 @@ def test_feed_timestamp_none_when_no_cache(tmp_path):
     assert client.feed_timestamp is None
 
 
+def test_corrupt_200_response_never_poisons_cache(tmp_path):
+    """Issue #12A: an HTTP 200 with a non-gzip body (captive portal) must
+    not be written to the cache nor marked fresh."""
+    client = EPSSClient(cache_dir=tmp_path)
+    resp = MagicMock(status_code=200, content=b"<html>not a feed</html>")
+    resp.url = MagicMock(host="epss.empiricalsecurity.com", scheme="https")
+    with patch("scripts.lib.feed_cache.httpx.Client") as mock_client:
+        mock_client.return_value.__enter__.return_value.get.return_value = resp
+        client.refresh()
+    assert client.is_degraded
+    assert not client.cache_path.exists()  # nothing poisoned
+
+
+def test_degraded_lookup_does_not_retry_network_per_cve(tmp_path):
+    """Issue #12B: after one failed refresh, N lookups must not trigger
+    N downloads."""
+    client = EPSSClient(cache_dir=tmp_path)
+    with patch("scripts.lib.feed_cache.httpx.Client") as mock_client:
+        mock_client.return_value.__enter__.return_value.get.side_effect = (
+            httpx.ConnectError("boom")
+        )
+        client.refresh()
+        for i in range(50):
+            assert client.lookup(f"CVE-2024-{i:04d}") is None
+        assert mock_client.return_value.__enter__.return_value.get.call_count == 1
+    assert client.is_degraded
+
+
+def test_stale_cache_fallback_is_flagged_not_degraded(tmp_path):
+    """Review I2: a failed network refresh that serves an expired on-disk
+    cache must set is_stale (operator-visible), not silently succeed."""
+    client = EPSSClient(cache_dir=tmp_path)
+    client.cache_path.write_bytes(_make_epss_csv_gz())
+    old = time.time() - (client.ttl_seconds + 3600)  # past TTL
+    os.utime(client.cache_path, (old, old))
+    with patch("scripts.lib.feed_cache.httpx.Client") as mock_client:
+        mock_client.return_value.__enter__.return_value.get.side_effect = (
+            httpx.ConnectError("boom")
+        )
+        client.refresh()
+    assert client.is_stale is True
+    assert client.is_degraded is False
+    assert client.lookup("CVE-2024-12345") is not None  # stale data still served
+
+
+def test_empty_feed_raises_and_degrades(tmp_path):
+    """Review M5: an all-rows-skipped feed (schema drift) degrades rather
+    than silently enriching nothing."""
+    client = EPSSClient(cache_dir=tmp_path)
+    empty = gzip.compress(b"cve,epss,percentile\n")  # header only, zero rows
+    resp = MagicMock(status_code=200, content=empty)
+    resp.url = MagicMock(host="epss.empiricalsecurity.com", scheme="https")
+    with patch("scripts.lib.feed_cache.httpx.Client") as mock_client:
+        mock_client.return_value.__enter__.return_value.get.return_value = resp
+        client.refresh()
+    assert client.is_degraded
+    assert not client.cache_path.exists()
+
+
 def test_refresh_uses_httpx_client_with_follow_redirects(tmp_path, mocker):
+    """#3: the feed client must follow redirects with a bounded chain."""
     cache_dir = tmp_path / "epss"
     blob = _make_epss_csv_gz()
     mock_resp = mocker.MagicMock(status_code=200, content=blob)
-    mock_resp.url = mocker.MagicMock(host="epss.empiricalsecurity.com")
-    mock_get = mocker.patch(
-        "scripts.lib.epss_client.httpx.Client.get", return_value=mock_resp
-    )
+    mock_resp.url = _allowed_url(mocker)
+    mock_get = mocker.MagicMock(return_value=mock_resp)
 
     client_kwargs: dict = {}
     real_client = mocker.MagicMock()
@@ -122,7 +185,8 @@ def test_refresh_uses_httpx_client_with_follow_redirects(tmp_path, mocker):
         client_kwargs.update(kwargs)
         return real_client
 
-    mocker.patch("scripts.lib.epss_client.httpx.Client", side_effect=_factory)
+    # The Client is constructed in FeedCacheClient.refresh (#18.3 shared base).
+    mocker.patch("scripts.lib.feed_cache.httpx.Client", side_effect=_factory)
 
     client = EPSSClient(cache_dir=cache_dir)
     client.refresh()
@@ -134,28 +198,27 @@ def test_refresh_uses_httpx_client_with_follow_redirects(tmp_path, mocker):
 
 
 def test_refresh_rejects_disallowed_final_host(tmp_path, mocker):
-    """Redirect chain landing on a non-allowlisted host marks the client degraded."""
+    """#3: a redirect chain landing on a non-allowlisted host marks degraded."""
     cache_dir = tmp_path / "epss"
     mock_resp = mocker.MagicMock(status_code=200, content=b"")
-    mock_resp.url = mocker.MagicMock(host="attacker.example.com")
-    mocker.patch("scripts.lib.epss_client.httpx.Client.get", return_value=mock_resp)
+    mock_resp.url = mocker.MagicMock(host="attacker.example.com", scheme="https")
+    mocker.patch("scripts.lib.feed_cache.httpx.Client.get", return_value=mock_resp)
 
     client = EPSSClient(cache_dir=cache_dir)
     client.refresh()
 
     assert client.is_degraded is True
     assert client.lookup("CVE-2024-12345") is None
+    assert not client.cache_path.exists()  # disallowed host never written
 
 
 def test_refresh_allows_dated_csv_on_same_origin(tmp_path, mocker):
-    """Real-world redirect to epss_scores-2026-06-09.csv.gz on the same host passes."""
+    """#3: a real-world redirect to epss_scores-<date>.csv.gz on the same host passes."""
     cache_dir = tmp_path / "epss"
     blob = _make_epss_csv_gz()
     mock_resp = mocker.MagicMock(status_code=200, content=blob)
-    mock_resp.url = mocker.MagicMock(
-        host="epss.empiricalsecurity.com"
-    )
-    mocker.patch("scripts.lib.epss_client.httpx.Client.get", return_value=mock_resp)
+    mock_resp.url = mocker.MagicMock(host="epss.empiricalsecurity.com", scheme="https")
+    mocker.patch("scripts.lib.feed_cache.httpx.Client.get", return_value=mock_resp)
 
     client = EPSSClient(cache_dir=cache_dir)
     client.refresh()

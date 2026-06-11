@@ -211,3 +211,44 @@ def test_sort_findings_no_priority_score_treated_as_zero():
     result = sort_findings([a, b])
     assert result[0]["vuln_id"] == "CVE-1"  # a (0.5) before b (0.0)
     assert result[1]["vuln_id"] == "CVE-2"
+
+
+def test_dedup_never_collapses_scan_error_records():
+    """Issue #10: every SCAN_ERROR on a target shares purl+vuln_id; dedup
+    must pass ALL of them through ('flow through, never block')."""
+    findings = [
+        new_finding("pkg:scan-error/bespin@-", "SCAN_ERROR", "info",
+                    "/var/www/a/package-lock.json", target="bespin",
+                    status="SCAN_ERROR", description="manifest a failed"),
+        new_finding("pkg:scan-error/bespin@-", "SCAN_ERROR", "info",
+                    "/var/www/b/package-lock.json", target="bespin",
+                    status="SCAN_ERROR", description="manifest b failed"),
+    ]
+    result = dedup_findings(findings)
+    assert len(result) == 2
+
+
+def test_exceptions_never_suppress_status_records():
+    """Issue #10 contract: status records flow through — even an exception
+    entry targeting vuln_id SCAN_ERROR must not suppress them."""
+    from scripts.triage import apply_exceptions
+    exceptions = [{"vuln_id": "SCAN_ERROR", "scope": "", "expires": "2099-01-01"}]
+    err = new_finding("pkg:scan-error/bespin@-", "SCAN_ERROR", "info",
+                      "/x/package-lock.json", target="bespin", status="SCAN_ERROR")
+    result = apply_exceptions([err], exceptions)
+    assert result == [err]
+
+
+def test_mal_override_severity_is_configurable():
+    f = new_finding("pkg:npm/evil@1.0.0", "MAL-2026-1", "low", "/x")
+    apply_mal_override([f], override_severity="high")
+    assert f["severity"] == "high"
+
+
+def test_mal_override_tolerates_non_string_aliases():
+    """Issue #18.5 drift fix: a non-string alias must not crash MAL override."""
+    f = new_finding("pkg:npm/x@1", "GHSA-1", "low", "/x")
+    f["aliases"] = ["MAL-2026-1", None, 42]
+    apply_mal_override([f])
+    assert f["severity"] == "critical"
+    assert f["mal_flagged"] is True

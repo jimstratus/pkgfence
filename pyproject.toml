@@ -9,6 +9,7 @@ dependencies = [
     "httpx[http2]==0.27.2",
     "jsonschema==4.23.0",
     "portalocker==2.10.1",
+    "cvss==3.4",
 ]
 
 [project.optional-dependencies]
