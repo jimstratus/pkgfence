@@ -96,4 +96,4 @@ pre-quote or pre-escape. Pass find's grouping operators as bare `"("` / `")"`.
 
 ## Current Release
 
-v0.3.0 — Phase 3a (EPSS + triple-score ranking) on top of Phase 1 (local scan) + Phase 2 (SSH remote scan + publish), plus the #7–#20 security/correctness hardening pass. See `docs/ARCHITECTURE.md` for the current architecture and `planning/phase3-inputs.md` for next-phase context.
+v0.3.0 — Phase 3a (EPSS + triple-score ranking) on top of Phase 1 (local scan) + Phase 2 (SSH remote scan + publish), plus the #7–#20 security/correctness hardening pass. See `docs/ARCHITECTURE.md` for the current architecture.

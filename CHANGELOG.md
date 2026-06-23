@@ -119,15 +119,12 @@ each scan. First production validation caught a real malicious package
 ### Documentation
 
 - `references/workflows/ssh-mode.md` — SSH mode workflow including ACL Pattern A1, sudo Pattern A2, manual osv-scanner install, publish configuration
-- `planning/phase2-dogfood-tier2.md` — dev-host-1 + dev-host-2 results, bugs found, publish verified
-- `planning/phase2-dogfood-tier1.md` — mars + bespin results, MAL-2023-462 finding, publish to control.example
-- `~/Downloads/pkgfence-reports/FIX-RECOMMENDATION-MAL-2023-462-fsevents.md` — manual Layer-5-stand-in fix recommendation for the first real production finding
 
 ### Production validation
 
-- Tier-2: dev-host-1 + dev-host-2 LXCs — 4 manifests, 69 findings, 0 critical
-- Tier-1: mars + bespin Plesk hosts — 129 manifests, 1326 findings, **1 real critical** (`MAL-2023-462 fsevents@1.2.4` on mars's legacy Pydio install)
-- Reports auto-published to `pkgfence@control.example:/opt/pkgfence-reports/SCANHOST/` after every scan
+- Tier-2: two Proxmox LXCs — 4 manifests, 69 findings, 0 critical
+- Tier-1: two production Plesk hosts — 129 manifests, 1326 findings, **1 real critical** (`MAL-2023-462 fsevents@1.2.4` in a legacy Pydio install)
+- Reports auto-published over the configured SCP sink after every scan
 
 ### Not yet supported (Phase 3+)
 
@@ -211,7 +208,7 @@ First working release. Scans local repository roots, runs osv-scanner, enriches 
 - Coarse reachability tiering
 - Meta mode (audit `.claude/`, `.cursor/`, `mcp.json`)
 
-See `planning/plan.md` for the full roadmap.
+Further phases (4–5) are planned.
 
 ---
 

@@ -54,7 +54,7 @@ flowchart LR
 - Coarse reachability tiering
 - Meta mode (audit `.claude/`, `.cursor/`, `mcp.json`)
 
-See `planning/plan.md` for the full roadmap.
+These are planned for future phases.
 
 ## Repository layout
 
@@ -114,47 +114,38 @@ pkgfence/
 │       ├── ssh_runner.py               ← SSH runner (shlex-quoted, allowlisted, ControlMaster)
 │       ├── remote_types.py             ← RemoteManifest TypedDict
 │       └── registry.py                 ← registry load/validate/atomic-write
-├── tests/                              ← 341 tests
-│   ├── conftest.py                     ← shared tmp_state, tmp_registry fixtures
-│   ├── fixtures/
-│   │   ├── npm/{vulnerable,clean,corrupted}/
-│   │   └── python/{vulnerable,clean}/
-│   ├── test_safety_invariants.py       ← S1/S2/S3 enforcement
-│   ├── test_s4_no_remote_content_exfil.py ← S4 enforcement
-│   ├── test_registry_validation.py     ← schema + loader + CLI
-│   ├── test_registry_cli_ssh.py        ← add-ssh, remove-ssh, list-with-ssh
-│   ├── test_ssh_runner_extensions.py   ← key_file, use_sudo, port, utf-8 decoding
-│   ├── test_discover_remote.py         ← remote discovery + node_modules exclusion
-│   ├── test_scan_remote.py             ← remote osv-scanner orchestration
-│   ├── test_scan_command_ssh.py        ← end-to-end scan_command + ssh + publish
-│   ├── test_ssh_precheck.py            ← precheck CLI
-│   ├── test_publish.py                 ← publish schema + scp sink
-│   ├── test_purl.py
-│   ├── test_osv_client.py
-│   ├── test_kev_client.py
-│   ├── test_discover.py
-│   ├── test_scan_local.py
-│   ├── test_enrich_threats.py
-│   ├── test_triage.py
-│   ├── test_exceptions.py
-│   ├── test_baseline.py
-│   ├── test_report.py
-│   ├── test_sarif.py
-│   ├── test_audit_log_atomicity.py
-│   ├── test_scan_command.py            ← end-to-end pipeline tests
-│   ├── test_ecosystems.py              ← Layer A fixture tests (npm, python)
-│   ├── test_logger.py
-│   ├── test_types.py
-│   └── test_config.py
-└── planning/                           ← historical planning artifacts
-    ├── design.md                       ← v2.1 spec (critic-approved)
-    ├── plan.md                         ← Phase 1 detailed + 2-5 outlined
-    ├── phase2-dogfood-tier2.md         ← dev-host-1 + dev-host-2 results
-    ├── phase2-dogfood-tier1.md         ← mars + bespin results, MAL-2023-462
-    └── research/
-        ├── round1-tooling.md
-        ├── round2-implementation.md
-        └── round3-prior-art.md
+└── tests/                              ← 341 tests
+    ├── conftest.py                     ← shared tmp_state, tmp_registry fixtures
+    ├── fixtures/
+    │   ├── npm/{vulnerable,clean,corrupted}/
+    │   └── python/{vulnerable,clean}/
+    ├── test_safety_invariants.py       ← S1/S2/S3 enforcement
+    ├── test_s4_no_remote_content_exfil.py ← S4 enforcement
+    ├── test_registry_validation.py     ← schema + loader + CLI
+    ├── test_registry_cli_ssh.py        ← add-ssh, remove-ssh, list-with-ssh
+    ├── test_ssh_runner_extensions.py   ← key_file, use_sudo, port, utf-8 decoding
+    ├── test_discover_remote.py         ← remote discovery + node_modules exclusion
+    ├── test_scan_remote.py             ← remote osv-scanner orchestration
+    ├── test_scan_command_ssh.py        ← end-to-end scan_command + ssh + publish
+    ├── test_ssh_precheck.py            ← precheck CLI
+    ├── test_publish.py                 ← publish schema + scp sink
+    ├── test_purl.py
+    ├── test_osv_client.py
+    ├── test_kev_client.py
+    ├── test_discover.py
+    ├── test_scan_local.py
+    ├── test_enrich_threats.py
+    ├── test_triage.py
+    ├── test_exceptions.py
+    ├── test_baseline.py
+    ├── test_report.py
+    ├── test_sarif.py
+    ├── test_audit_log_atomicity.py
+    ├── test_scan_command.py            ← end-to-end pipeline tests
+    ├── test_ecosystems.py              ← Layer A fixture tests (npm, python)
+    ├── test_logger.py
+    ├── test_types.py
+    └── test_config.py
 ```
 
 ## Quick start (local scanning)
@@ -241,7 +232,6 @@ Phase 2 SSH support closed the loop on the second class. During tier-1 dogfood, 
 | [references/workflows/open-source-release.md](references/workflows/open-source-release.md) | Safe private-to-public release workflow | Developer |
 | [references/scanners/osv-scanner.md](references/scanners/osv-scanner.md) | osv-scanner integration reference | Developer |
 | [references/threat-intel/](references/threat-intel/) | CISA KEV and OSV API threat intelligence docs | Developer |
-| [planning/plan.md](planning/plan.md) | Full roadmap (Phases 1-5) | Developer |
 
 ## Development
 

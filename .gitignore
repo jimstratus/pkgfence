@@ -43,3 +43,10 @@ logs/
 
 # Ad-hoc scan output dir (same class as state/ — never commit)
 scanstate/
+
+# Internal planning/design/dogfood docs — archived in a private vault, never public.
+# Removed from git history on 2026-06-23 during the private→public conversion;
+# kept locally (gitignored) for working context. Contain real infra + customer detail.
+planning/
+.claude/rules/ca-errors.md
+docs/superpowers/plans/
