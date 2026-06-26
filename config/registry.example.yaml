@@ -11,13 +11,13 @@ roots:
     tier: 1
     exclude: [".git", "node_modules", ".venv", "__pycache__", "dist", "build", ".next", "target"]
     monorepo_mode: per_package
-  - path: 'C:\eotir\projects'
+  - path: 'C:\myorg\projects'
     tier: 1
     exclude: [".git", "node_modules", ".venv"]
 
 projects:
-  - path: 'C:\eotir'
-    name: eotir-main
+  - path: 'C:\myorg'
+    name: myorg-main
     tier: 1
     note: "Vite/TS project that lives next to projects/ subdir"
 

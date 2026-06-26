@@ -183,13 +183,13 @@ def test_registry_cli_add_project(tmp_path):
     result = subprocess.run(
         [sys.executable, "-m", "scripts.registry_cli",
          "--registry", str(reg),
-         "add-project", "C:\\eotir", "--name", "eotir-main", "--tier", "1"],
+         "add-project", "C:\\myorg", "--name", "myorg-main", "--tier", "1"],
         capture_output=True, text=True, cwd=str(SKILL_ROOT),
     )
     assert result.returncode == 0, f"stderr: {result.stderr}"
     reg_data = load_registry(reg)
-    assert any(p["name"] == "eotir-main" for p in reg_data["projects"])
-    assert reg_data["projects"][0]["path"] == "C:\\eotir"
+    assert any(p["name"] == "myorg-main" for p in reg_data["projects"])
+    assert reg_data["projects"][0]["path"] == "C:\\myorg"
 
 
 def test_registry_cli_remove_root(tmp_path):
@@ -197,7 +197,7 @@ def test_registry_cli_remove_root(tmp_path):
     reg.write_text("""version: 1
 roots:
   - {path: "D:\\\\projects", tier: 1}
-  - {path: "C:\\\\eotir\\\\projects", tier: 1}
+  - {path: "C:\\\\myorg\\\\projects", tier: 1}
 projects: []
 ssh: []
 github: []
@@ -211,7 +211,7 @@ github: []
     assert result.returncode == 0, f"stderr: {result.stderr}"
     reg_data = load_registry(reg)
     assert len(reg_data["roots"]) == 1
-    assert reg_data["roots"][0]["path"] == "C:\\eotir\\projects"
+    assert reg_data["roots"][0]["path"] == "C:\\myorg\\projects"
 
 
 def test_registry_cli_remove_project(tmp_path):
@@ -219,14 +219,14 @@ def test_registry_cli_remove_project(tmp_path):
     reg.write_text("""version: 1
 roots: []
 projects:
-  - {path: "C:\\\\eotir", name: eotir-main, tier: 1}
+  - {path: "C:\\\\myorg", name: myorg-main, tier: 1}
 ssh: []
 github: []
 """)
     result = subprocess.run(
         [sys.executable, "-m", "scripts.registry_cli",
          "--registry", str(reg),
-         "remove", "eotir-main"],
+         "remove", "myorg-main"],
         capture_output=True, text=True, cwd=str(SKILL_ROOT),
     )
     assert result.returncode == 0, f"stderr: {result.stderr}"
