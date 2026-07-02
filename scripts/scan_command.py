@@ -10,6 +10,7 @@ Usage (from CLI):
 import argparse
 import datetime
 import json
+import os
 import socket
 import sys
 import uuid
@@ -24,8 +25,13 @@ from scripts.discover_remote import discover_remote_safely
 from scripts.scan_remote import scan_remote_manifests
 from scripts.lib.ssh_runner import SSHRunner
 from scripts.enrich_threats import enrich_with_kev
+from scripts.lib.ghsa_client import GHSAHTTPClient
+from scripts.enrich_ghsa import enrich_with_ghsa
 from scripts.lib.epss_client import EPSSClient
 from scripts.enrich_epss import enrich_with_epss
+from scripts.lib.depsdev_client import DepsDevClient
+from scripts.lib.scorecard_client import ScorecardClient
+from scripts.enrich_depsdev_scorecard import enrich_with_depsdev, enrich_with_scorecard
 from scripts.lib.priority import apply_priority_scores
 from scripts.triage import (
     dedup_findings,
@@ -34,16 +40,19 @@ from scripts.triage import (
     sort_findings,
     apply_exclusions,
 )
+from scripts.heuristics import run_heuristics
 from scripts.report import render_markdown_report
-from scripts.lib.baseline import save_baseline, load_baseline, diff_findings
+from scripts.lib.baseline import save_baseline, load_baseline, diff_findings, diff_alarms
 from scripts.lib.kev_client import KEVClient
 from scripts.lib.registry import load_registry, RegistryError
 from scripts.lib.remote_types import RemoteManifest
 from scripts.lib.config import load_defaults, DefaultsError, load_yaml
 from scripts.lib.exceptions import load_exceptions
 from scripts.lib.types import Finding, SEVERITY_RANK, is_status_record
+from scripts.recommend_fix import build_fix_document, write_fix_document
 from scripts.eol_detect import detect_eol_local, detect_eol_remote
 from scripts.installed_check import apply_installed_checks
+from scripts.scan_cdn import scan_cdn_sri
 from scripts.lib.audit_log import append_audit_record
 from scripts.lib.sarif import findings_to_sarif
 from scripts.lib.logger import get_logger
@@ -82,6 +91,7 @@ def run_scan(
     state_dir: Path,
     adhoc_path: Path | None = None,
     fail_on: str = "critical",
+    with_fixes: bool = False,
 ) -> tuple[int, Path]:
     """Execute the scan mode end-to-end.
 
@@ -215,21 +225,52 @@ def run_scan(
     findings.extend(eol_findings_local)
     findings.extend(eol_findings_remote)
 
-    # Layer 3: enrichment — one (client, enrich_fn, degraded_msg, stale_msg)
-    # entry per source (issue #20.1: adding deps.dev later = adding a tuple,
-    # not copying refresh/degraded plumbing). Clients refresh lazily on
-    # first lookup and degrade at most once per run.
+    # CDN/SRI scan for local targets (Phase 5)
+    for root_cfg in reg.get("roots") or []:
+        root_path = Path(root_cfg.get("path", ""))
+        if root_path.is_dir():
+            cdn_findings = scan_cdn_sri(
+                root_path, target_name=root_cfg.get("name", str(root_path)),
+            )
+            findings.extend(cdn_findings)
+            if cdn_findings:
+                log.info("CDN/SRI scan: %d missing-integrity resources in %s",
+                         len(cdn_findings), root_path)
+
+    # Layer 3: enrichment — KEV -> GHSA -> EPSS. GHSA runs before EPSS so
+    # any CVE alias discovered in the advisory feeds into EPSS lookup.
+    # One (client, enrich_fn, degraded_msg, stale_msg) entry per source
+    # (issue #20.1: adding deps.dev later = adding a tuple, not copying
+    # refresh/degraded plumbing). Clients refresh lazily on first lookup
+    # and degrade at most once per run.
     log.info("L3 enrichment starting")
     degraded_modes: list[str] = []
     kev = KEVClient(cache_dir=state_dir / "cache" / "kev")
+    threat_intel_cfg = defaults.get("threat_intel") or {}
+    ghsa = GHSAHTTPClient(
+        cache_dir=state_dir / "cache" / "ghsa",
+        ttl_seconds=threat_intel_cfg.get("cache_ttls", {}).get("ghsa", 14400),
+        token=os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN"),
+    )
     epss = EPSSClient(cache_dir=state_dir / "cache" / "epss")
+    depsdev = DepsDevClient(cache_dir=state_dir / "cache" / "depsdev")
+    scorecard = ScorecardClient(cache_dir=state_dir / "cache" / "scorecard")
     enrichers = [
         (kev, enrich_with_kev,
          "CISA KEV feed degraded — exploit-status not enriched",
          "CISA KEV feed stale — refresh failed, serving cached data"),
+        (ghsa, enrich_with_ghsa,
+         "GHSA advisory feed degraded — rate limited or unreachable",
+         "GHSA advisory feed stale — refresh failed, serving cached data"),
         (epss, enrich_with_epss,
          "EPSS feed degraded — exploit-probability not enriched",
          "EPSS feed stale — refresh failed, serving cached data"),
+        (depsdev, enrich_with_depsdev,
+         "deps.dev package metadata degraded — transitive paths not available",
+         "deps.dev feed stale — refresh failed, serving cached data"),
+        (scorecard, enrich_with_scorecard,
+         "OpenSSF Scorecard degraded — health scores not available",
+         "OpenSSF Scorecard stale — refresh failed, serving cached data"),
     ]
     for client, enrich_fn, degraded_msg, stale_msg in enrichers:
         findings = enrich_fn(findings, client)
@@ -237,6 +278,12 @@ def run_scan(
             degraded_modes.append(degraded_msg)
         elif client.is_stale:
             degraded_modes.append(stale_msg)
+
+    # Layer 3.7: Behavioral heuristics — runs from lockfile data, no API calls.
+    # Remote targets skip lifecycle + provenance (S4 invariant).
+    # manifest_data is populated from L2 scanner output in future phases.
+    heuristics_cfg = defaults.get("heuristics") or {}
+    findings = run_heuristics(findings, {}, heuristics_cfg)
 
     # Layer 4: Triage
     log.info("L4 triage starting")
@@ -275,6 +322,14 @@ def run_scan(
     prior_findings = (prior_baseline or {}).get("findings") if prior_baseline else None
     findings = diff_findings(findings, prior_findings)
 
+    # Baseline diff alarm — detect manifest-hash changes without new findings
+    current_hashes = {m["path"]: m.get("manifest_hash", "") for m in manifests}
+    prior_hashes = (prior_baseline or {}).get("manifest_hashes")
+    prior_count = len(prior_findings) if prior_findings else None
+    alarms = diff_alarms(current_hashes, prior_hashes, len(findings), prior_count)
+    if alarms:
+        degraded_modes.extend(alarms)
+
     # Save updated baseline
     save_baseline(
         baseline_path,
@@ -302,9 +357,15 @@ def run_scan(
     snapshot = {
         "scanner_version": detect_scanner("osv-scanner") or "osv-api-fallback",
         "kev_timestamp": snapshot_timestamp,
+        "ghsa_advisories_fetched": ghsa.advisories_fetched,
+        "ghsa_advisories_cached": ghsa.advisories_cached,
         "epss_feed_timestamp": epss.feed_timestamp,
+        "depsdev_packages_fetched": depsdev.packages_fetched,
+        "depsdev_packages_cached": depsdev.packages_cached,
+        "scorecard_repos_fetched": scorecard.repos_fetched,
+        "scorecard_repos_cached": scorecard.repos_cached,
         "targets_scanned": len(manifests) + len(remote_manifests),
-        "packages_checked": len(findings),  # rough proxy
+        "packages_checked": len(findings),
         "run_id": run_id,
         "timestamp": snapshot_timestamp,
         "scanner_host": socket.gethostname(),
@@ -316,6 +377,12 @@ def run_scan(
     report_md = render_markdown_report(findings, snapshot, degraded_modes)
     report_path = state_dir / "reports" / f"{run_id}.md"
     report_path.write_text(report_md, encoding="utf-8")
+
+    if with_fixes:
+        fix_doc = build_fix_document(findings)
+        fix_path = state_dir / "fix-recommendations" / f"{run_id}-fixes.json"
+        write_fix_document(fix_doc, fix_path)
+        log.info("Fix recommendations written to %s", fix_path)
     log.info("wrote report to %s", report_path)
 
     # SARIF output
@@ -372,6 +439,10 @@ def main(argv=None) -> int:
         choices=["critical", "high", "medium", "low", "info"],
         help="Exit code 1 if findings at this severity or higher",
     )
+    parser.add_argument(
+        "--with-fixes", action="store_true",
+        help="Generate fix-recommendation document after scan",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -380,6 +451,7 @@ def main(argv=None) -> int:
             state_dir=Path(args.state),
             adhoc_path=Path(args.path) if args.path else None,
             fail_on=args.fail_on,
+            with_fixes=args.with_fixes,
         )
         return exit_code
     except Exception as e:  # noqa: BLE001
