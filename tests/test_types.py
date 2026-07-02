@@ -1,5 +1,5 @@
 """Test the Finding TypedDict contract."""
-from scripts.lib.types import Finding, new_finding, is_status_record, SEVERITY_RANK, iter_vuln_ids
+from scripts.lib.types import Finding, GHSAAdvisory, new_finding, is_status_record, SEVERITY_RANK, iter_vuln_ids
 
 
 def test_finding_accepts_installed_and_original_severity():
@@ -59,3 +59,66 @@ def test_iter_vuln_ids_skips_non_string_aliases():
 
 def test_iter_vuln_ids_handles_missing_fields():
     assert list(iter_vuln_ids({})) == []
+
+
+def test_finding_accepts_ghsa_field():
+    f = new_finding(purl="pkg:npm/foo@1.0", vuln_id="GHSA-abcd",
+                    severity="high", manifest_path="/a", target="local")
+    advisory: GHSAAdvisory = {
+        "ghsa_id": "GHSA-abcd",
+        "cve_id": "CVE-2024-1",
+        "summary": "Test advisory",
+        "description": "Full description",
+        "severity": "critical",
+        "cvss_score": 9.8,
+        "cvss_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+        "cwes": ["CWE-1321"],
+        "permalink": "https://github.com/advisories/GHSA-abcd",
+        "published_at": "2024-01-01T00:00:00Z",
+        "updated_at": "2024-06-01T00:00:00Z",
+        "withdrawn_at": None,
+    }
+    f["ghsa"] = advisory
+    assert f["ghsa"]["severity"] == "critical"
+    assert f["ghsa"]["cwes"] == ["CWE-1321"]
+    assert f["ghsa"]["cvss_score"] == 9.8
+
+
+def test_ghsaadvisory_withdrawn():
+    advisory: GHSAAdvisory = {
+        "ghsa_id": "GHSA-1234",
+        "summary": "Withdrawn advisory",
+        "description": "This was retracted",
+        "severity": "high",
+        "published_at": "2024-01-01T00:00:00Z",
+        "updated_at": "2024-06-01T00:00:00Z",
+        "withdrawn_at": "2024-07-01T00:00:00Z",
+    }
+    assert advisory["withdrawn_at"] == "2024-07-01T00:00:00Z"
+
+
+def test_ghsaadvisory_omits_optional_fields():
+    advisory: GHSAAdvisory = {
+        "ghsa_id": "GHSA-minimal",
+        "summary": "Minimal advisory",
+        "description": "Just the essentials",
+        "severity": "medium",
+        "published_at": "2024-01-01T00:00:00Z",
+        "updated_at": "2024-06-01T00:00:00Z",
+    }
+    assert "cve_id" not in advisory
+    assert "cwes" not in advisory
+
+
+def test_finding_accepts_heuristic_fields():
+    f = new_finding(purl="pkg:npm/lodash@4.17.10", vuln_id="GHSA-jf85",
+                    severity="high", manifest_path="/a", target="local")
+    f["heuristic_flags"] = ["age:abandoned", "lifecycle:postinstall"]
+    f["lifecycle_script"] = "postinstall:node ./install.js"
+    f["missing_provenance"] = True
+    f["entropy_score"] = 7.2
+    assert "age:abandoned" in f["heuristic_flags"]
+    assert "lifecycle:postinstall" in f["heuristic_flags"]
+    assert f["lifecycle_script"].startswith("postinstall")
+    assert f["missing_provenance"] is True
+    assert f["entropy_score"] == 7.2

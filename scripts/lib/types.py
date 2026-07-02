@@ -18,6 +18,55 @@ SEVERITY_RANK: dict[str, int] = {
 }
 
 
+class GHSAAdvisory(TypedDict, total=False):
+    """GitHub Advisory Database entry, fetched via REST API.
+
+    Stored as a nested dict on Finding["ghsa"] so the full advisory
+    metadata is available for report rendering, CWE classification,
+    CVE alias injection, and Phase 3c behavioral heuristics (age).
+    """
+    ghsa_id: str
+    cve_id: str | None
+    summary: str
+    description: str
+    severity: str
+    cvss_score: float | None
+    cvss_vector: str | None
+    cwes: list[str]
+    permalink: str
+    published_at: str
+    updated_at: str
+    withdrawn_at: str | None
+
+
+class DepsDevMetadata(TypedDict, total=False):
+    """deps.dev v3alpha package metadata, fetched via REST API.
+
+    Stored as a nested dict on Finding["deps_dev"].
+    """
+    ecosystem: str
+    name: str
+    version: str
+    description: str | None
+    licenses: list[str]
+    links: list[dict]
+    is_direct: bool
+    transitive_path: list[str]
+    advisories_count: int
+
+
+class ScorecardResult(TypedDict, total=False):
+    """OpenSSF Scorecard health score for a repository.
+
+    Stored as a nested dict on Finding["scorecard"].
+    """
+    repo: str
+    score: float
+    date: str
+    checks: list[dict]
+    badge_url: str | None
+
+
 class Finding(TypedDict, total=False):
     """A single vulnerability finding, normalized across scanners.
 
@@ -49,6 +98,11 @@ class Finding(TypedDict, total=False):
         scanner_source      — 'osv-scanner' | 'osv-api' | etc. (for conflict resolution)
         installed           — True/False whether the package is installed (absent = not applicable)
         original_severity   — severity before demotion (set only when severity demotion occurs)
+        ghsa                — GitHub Advisory metadata (GHSAAdvisory) set by L3.5 GHSA enrichment
+        heuristic_flags     — list of behavioral flag strings set by L3.7 heuristics
+        lifecycle_script    — non-empty lifecycle script body (preinstall/postinstall/prepare)
+        missing_provenance  — True if npm package lacks SLSA provenance attestation
+        entropy_score       — Shannon entropy of package name (typosquatting signal)
     """
     purl: str
     vuln_id: str
@@ -72,6 +126,13 @@ class Finding(TypedDict, total=False):
     scanner_source: str
     installed: bool
     original_severity: Severity
+    ghsa: GHSAAdvisory
+    heuristic_flags: list[str]
+    lifecycle_script: str | None
+    missing_provenance: bool
+    entropy_score: float | None
+    deps_dev: DepsDevMetadata
+    scorecard: ScorecardResult
 
 
 def new_finding(
