@@ -27,7 +27,23 @@ threat_intel:
   cache_ttls:
     osv: 6h
     kev: 24h
+    ghsa: 14400
+    deps_dev: 86400
+    scorecard: 604800
   degraded_mode_after_retries: 3
+
+heuristics:
+  age:
+    new_package_days: 30
+    new_version_days: 2
+    abandoned_days: 365
+  lifecycle_script_flag: escalate
+  lifecycle_script_escalate_if_network_op: critical
+  entropy:
+    threshold: 7.0
+    scope_includes: [".js", ".py", ".rb", ".php", ".go"]
+    scope_excludes: ["*.min.js", "*.wasm", "*.map", "bundle.js"]
+  provenance_expected_missing: critical
 
 reports:
   format: markdown
