@@ -66,12 +66,20 @@ def test_run_scan_with_ssh_target_includes_remote_findings(tmp_path, tmp_state):
                 mock_epss.refresh = MagicMock()
                 mock_epss.lookup.return_value = None
                 mock_epss_cls.return_value = mock_epss
+                with patch("scripts.scan_command.GHSAHTTPClient") as mock_ghsa_cls:
+                    mock_ghsa = MagicMock()
+                    mock_ghsa.is_degraded = False
+                    mock_ghsa.is_stale = False
+                    mock_ghsa.advisories_fetched = 0
+                    mock_ghsa.advisories_cached = 0
+                    mock_ghsa.fetch.return_value = None
+                    mock_ghsa_cls.return_value = mock_ghsa
 
-                exit_code, report_path = run_scan(
-                    registry_path=reg,
-                    state_dir=tmp_state,
-                    fail_on="high",
-                )
+                    exit_code, report_path = run_scan(
+                        registry_path=reg,
+                        state_dir=tmp_state,
+                        fail_on="high",
+                    )
 
     assert exit_code == 1
     report_text = report_path.read_text(encoding="utf-8")
@@ -125,11 +133,19 @@ def test_run_scan_with_unreachable_ssh_target_exit_1_not_2(tmp_path, tmp_state):
                 mock_epss.refresh = MagicMock()
                 mock_epss.lookup.return_value = None
                 mock_epss_cls.return_value = mock_epss
-                exit_code, report_path = run_scan(
-                    registry_path=reg,
-                    state_dir=tmp_state,
-                    fail_on="critical",
-                )
+                with patch("scripts.scan_command.GHSAHTTPClient") as mock_ghsa_cls:
+                    mock_ghsa = MagicMock()
+                    mock_ghsa.is_degraded = False
+                    mock_ghsa.is_stale = False
+                    mock_ghsa.advisories_fetched = 0
+                    mock_ghsa.advisories_cached = 0
+                    mock_ghsa.fetch.return_value = None
+                    mock_ghsa_cls.return_value = mock_ghsa
+                    exit_code, report_path = run_scan(
+                        registry_path=reg,
+                        state_dir=tmp_state,
+                        fail_on="critical",
+                    )
 
     # SCAN_ERROR findings have severity=info, so they don't trip fail-on=critical
     assert exit_code == 0
@@ -259,18 +275,24 @@ def test_run_scan_skips_tier2_ssh_targets_by_default(tmp_path, tmp_state):
                 mock_epss.refresh = MagicMock()
                 mock_epss.lookup.return_value = None
                 mock_epss_cls.return_value = mock_epss
+                with patch("scripts.scan_command.GHSAHTTPClient") as mock_ghsa_cls:
+                    mock_ghsa = MagicMock()
+                    mock_ghsa.is_degraded = False
+                    mock_ghsa.is_stale = False
+                    mock_ghsa.advisories_fetched = 0
+                    mock_ghsa.advisories_cached = 0
+                    mock_ghsa.fetch.return_value = None
+                    mock_ghsa_cls.return_value = mock_ghsa
 
-                exit_code, report_path = run_scan(
-                    registry_path=reg,
-                    state_dir=tmp_state,
-                    fail_on="critical",
-                )
+                    exit_code, report_path = run_scan(
+                        registry_path=reg,
+                        state_dir=tmp_state,
+                        fail_on="critical",
+                    )
 
     assert exit_code == 0
-    # Target name should NOT appear in findings-related sections of the report
-    # (it may or may not appear in a registry summary — we only check no finding was generated)
     report_text = report_path.read_text(encoding="utf-8")
-    assert "GHSA" not in report_text
+    assert "GHSA-" not in report_text
     assert "SCAN_ERROR" not in report_text
 
 

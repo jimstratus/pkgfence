@@ -50,6 +50,12 @@ def _build_frontmatter(
         "ssh_targets": [str(t) for t in snapshot.get("ssh_targets", [])],
         "local_roots": [str(r) for r in snapshot.get("local_roots", [])],
         "epss_feed_timestamp": snapshot.get("epss_feed_timestamp"),
+        "ghsa_advisories_fetched": snapshot.get("ghsa_advisories_fetched", 0),
+        "ghsa_advisories_cached": snapshot.get("ghsa_advisories_cached", 0),
+        "depsdev_packages_fetched": snapshot.get("depsdev_packages_fetched", 0),
+        "depsdev_packages_cached": snapshot.get("depsdev_packages_cached", 0),
+        "scorecard_repos_fetched": snapshot.get("scorecard_repos_fetched", 0),
+        "scorecard_repos_cached": snapshot.get("scorecard_repos_cached", 0),
     }
 
     return build_frontmatter(fm_data)
@@ -78,6 +84,21 @@ def _render_snapshot(snapshot: dict[str, Any]) -> str:
         lines.append(f"- Targets scanned: {snapshot['targets_scanned']}")
     if "packages_checked" in snapshot:
         lines.append(f"- Packages checked: {snapshot['packages_checked']}")
+    if snapshot.get("ghsa_advisories_fetched") is not None:
+        lines.append(
+            f"- GHSA advisories fetched: {snapshot['ghsa_advisories_fetched']} "
+            f"({snapshot.get('ghsa_advisories_cached', 0)} cached)"
+        )
+    if snapshot.get("depsdev_packages_fetched") is not None:
+        lines.append(
+            f"- deps.dev packages looked up: {snapshot['depsdev_packages_fetched']} "
+            f"({snapshot.get('depsdev_packages_cached', 0)} cached)"
+        )
+    if snapshot.get("scorecard_repos_fetched") is not None:
+        lines.append(
+            f"- Scorecard repos scored: {snapshot['scorecard_repos_fetched']} "
+            f"({snapshot.get('scorecard_repos_cached', 0)} cached)"
+        )
     return "\n".join(lines) + "\n"
 
 
@@ -133,6 +154,59 @@ def _render_finding_card(f: Finding) -> str:
         lines.append(f"- **Diff status:** {f['diff_status']}")
     if f.get("description"):
         lines.append(f"- **Description:** {f['description']}")
+    ghsa = f.get("ghsa")
+    if ghsa:
+        permalink = ghsa.get("permalink", "")
+        published = (ghsa.get("published_at") or "")[:10]
+        updated = (ghsa.get("updated_at") or "")[:10]
+        if permalink:
+            lines.append(
+                f"- **GHSA:** [{ghsa.get('ghsa_id', '?')}]({permalink}) "
+                f"\u2014 published {published}, updated {updated}"
+            )
+        cwes = ghsa.get("cwes")
+        if cwes:
+            lines.append(f"- **CWE:** {', '.join(cwes)}")
+        if ghsa.get("withdrawn_at"):
+            withdrawn = ghsa["withdrawn_at"][:10]
+            lines.append(
+                f"- **\u26a0\ufe0f WITHDRAWN:** this advisory was retracted on {withdrawn}"
+            )
+    heuristic_flags = f.get("heuristic_flags")
+    if heuristic_flags:
+        flag_text = ", ".join(heuristic_flags)
+        if any("network-op" in flag for flag in heuristic_flags):
+            lines.append(f"- **\u26a0\ufe0f Heuristics:** {flag_text}")
+        else:
+            lines.append(f"- **Heuristics:** {flag_text}")
+    deps = f.get("deps_dev")
+    if deps:
+        eco = deps.get("ecosystem", "?")
+        name = deps.get("name", "?")
+        version = deps.get("version", "?")
+        licenses = ", ".join(deps.get("licenses") or []) or "unknown"
+        path = deps.get("transitive_path") or []
+        if path:
+            path_str = " \u2192 ".join(path)
+            lines.append(
+                f"- **Deps.dev:** {eco}:{name}@{version} \u2014 {licenses}, "
+                f"transitive ({path_str})"
+            )
+        else:
+            direct = "direct" if deps.get("is_direct") else "transitive"
+            lines.append(
+                f"- **Deps.dev:** {eco}:{name}@{version} \u2014 {licenses}, "
+                f"{direct}, {deps.get('advisories_count', 0)} advisories"
+            )
+    sc = f.get("scorecard")
+    if sc:
+        score = sc.get("score", 0.0)
+        checks = sc.get("checks") or []
+        check_summary = ", ".join(
+            f"{c.get('name', '?')}: {c.get('score', 0)}/10"
+            for c in checks[:5]
+        )
+        lines.append(f"- **Scorecard:** {sc.get('repo', '?')} \u2014 {score:.1f}/10 ({check_summary})")
     if f.get("remediation"):
         lines.append(f"- **Remediation:** {f['remediation']}")
     priority = f.get("priority_score")
