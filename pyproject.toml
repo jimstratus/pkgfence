@@ -23,6 +23,7 @@ dev = [
 pkgfence = "scripts.scan_command:main"
 pkgfence-lookup = "scripts.lookup_command:main"
 pkgfence-notify = "scripts.notify:main"
+pkgfence-watch = "scripts.watch_daemon:main"
 
 [build-system]
 requires = ["setuptools>=68"]
