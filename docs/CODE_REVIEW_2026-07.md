@@ -84,12 +84,12 @@ def save_baseline(path: Path, baseline: dict[str, Any]) -> None:
 
 **Recommendation:** Apply the same temp-file + `os.replace` pattern used in `registry.py`.
 
-#### M2. Audit log claims portalocker but doesn't use it
-**File:** `scripts/lib/audit_log.py:14-27`
+#### M2. AGENTS.md overclaims portalocker usage scope
+**File:** `AGENTS.md` line 79 (Dependencies table)
 
-The module docstring says "atomic audit log writes with portalocker" and `AGENTS.md` claims "portalocker for atomic file writes (audit log, baselines)". But `append_audit_record()` simply opens in append mode without any locking. The per-run file strategy sidesteps the shared-append race, but the documentation is misleading.
+`AGENTS.md` states "portalocker 2.10.1 — Cross-platform file locking for atomic writes", implying portalocker is used broadly for atomic writes across the codebase. In reality, portalocker is only used in `feed_cache.py`. The `audit_log.py` module docstring (`scripts/lib/audit_log.py:1-8`) correctly describes its actual strategy: "Append-only audit log via per-run JSONL files" and "Per-run files sidestep the race entirely" — it does **not** claim to use portalocker. Similarly, `baseline.py` uses plain `write_text()` without locking. The overclaim is confined to `AGENTS.md`.
 
-**Recommendation:** Either add portalocker or correct the documentation to reflect the per-run file strategy.
+**Recommendation:** Correct `AGENTS.md` Dependencies table to read "portalocker 2.10.1 — Cross-platform file locking for feed cache atomic writes" to accurately scope its usage. See also D10.
 
 #### M3. Discovery file_count cap is shared across all roots
 **File:** `scripts/discover.py:50-60`
@@ -236,8 +236,7 @@ Total: 1966 statements, 194 missed, 90% coverage
 | D6 | `CHANGELOG.md:197` (v0.1.0) | "Pinned dev deps: pytest==8.3.4" | `pyproject.toml:17` pins `pytest==9.0.3` | Low |
 | D7 | `scripts/lib/sarif.py:91` | `"version": "0.1.0"` | pkgfence is v0.3.0 | High |
 | D8 | `scripts/lib/sarif.py:91` | `"informationUri": "https://github.com/ryanm/pkgfence"` | `DEVELOPMENT.md:31` references `jimstratus/pkgfence` | High |
-| D9 | `scripts/lib/audit_log.py` docstring | "atomic audit log writes with portalocker" | No portalocker used | Medium |
-| D10 | `AGENTS.md` Dependencies | "portalocker 2.10.1 — Cross-platform file locking for atomic writes" | Only used in `feed_cache.py`, not in audit_log or baseline | Low |
+| D9 | `AGENTS.md` Dependencies | "portalocker 2.10.1 — Cross-platform file locking for atomic writes" | Only used in `feed_cache.py`; `audit_log.py` docstring correctly describes per-run strategy without claiming portalocker; `baseline.py` uses plain `write_text()` | Medium |
 | D11 | `scripts/enrich_threats.py:6` | "(Phase 2+: epss_score, deps.dev health, GHSA cross-check)" | EPSS is implemented (Phase 3a), comment is stale | Low |
 
 ---
@@ -287,14 +286,16 @@ All items listed in README "What's deferred (Phase 3b+)" are confirmed genuinely
 
 4. **Update AGENTS.md pytest version** (D1, D4) — Change "8.3.4" to "9.0.3" throughout.
 
-5. **Add discovery file_count warning** (M3) — Log when the cap is hit so operators know discovery was truncated.
+5. **Correct AGENTS.md portalocker scope** (M2, D9) — Change "portalocker 2.10.1 — Cross-platform file locking for atomic writes" to "portalocker 2.10.1 — Cross-platform file locking for feed cache atomic writes" to accurately reflect that only `feed_cache.py` uses it.
 
-6. **Standardize logger usage** (M6) — Switch `eol_detect.py` to `get_logger(__name__)`.
+6. **Add discovery file_count warning** (M3) — Log when the cap is hit so operators know discovery was truncated.
 
-7. **Document S4a symlink residual risk** (H1) — Either add a `stat -L` check or explicitly accept the risk in `SAFETY_INVARIANTS.md`.
+7. **Standardize logger usage** (M6) — Switch `eol_detect.py` to `get_logger(__name__)`.
 
-8. **Configure lint** (L1) — Add ruff or equivalent. For a security tool, the absence of static analysis is a gap.
+8. **Document S4a symlink residual risk** (H1) — Either add a `stat -L` check or explicitly accept the risk in `SAFETY_INVARIANTS.md`.
 
-9. **Document publish S3 exception** (M8) — Note in `SAFETY_INVARIANTS.md` that publish builds its own SSH commands outside the allowlist.
+9. **Configure lint** (L1) — Add ruff or equivalent. For a security tool, the absence of static analysis is a gap.
 
-10. **Consider adding mypy** (L1) — TypedDicts are defined but never checked by a type checker.
+10. **Document publish S3 exception** (M8) — Note in `SAFETY_INVARIANTS.md` that publish builds its own SSH commands outside the allowlist.
+
+11. **Consider adding mypy** (L1) — TypedDicts are defined but never checked by a type checker.
