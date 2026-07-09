@@ -1,15 +1,15 @@
-# pkgfence v0.3.0 Comprehensive Code Review
+# pkgfence v0.3.0 Code Review
 
 **Reviewer:** Toast (polecat agent)  
-**Date:** 2026-07-08  
-**Scope:** Full `scripts/` implementation (L1–L4 pipeline + lib helpers), tests, and config  
+**Date:** 2026-07-09  
+**Scope:** Full `scripts/` implementation (L1-L4 pipeline + lib helpers), tests, and config  
 **Test environment:** Python 3.13.5, pytest 9.0.3, Linux
 
 ---
 
 ## Executive Summary
 
-pkgfence v0.3.0 is a well-architected dependency and supply-chain vulnerability scanner with robust safety invariants and clean pipeline design. The codebase demonstrates strong engineering discipline: 341 tests pass with 90% line coverage, safety invariants S1–S4 are enforced through both static analysis and runtime checks, and the L1→L2→L3→L3.5→L4→Output pipeline is clearly structured.
+pkgfence v0.3.0 is a well-architected dependency and supply-chain vulnerability scanner with robust safety invariants and clean pipeline design. The codebase demonstrates strong engineering discipline: **341 tests pass with 90% line coverage**, safety invariants S1-S4 are enforced through both static analysis and runtime checks, and the L1→L2→L3→L3.5→L4→Output pipeline is clearly structured.
 
 **Critical findings:** None. All safety invariants hold.
 
@@ -26,7 +26,7 @@ pkgfence v0.3.0 is a well-architected dependency and supply-chain vulnerability 
 
 **Documentation drift:** 11 discrepancies identified between docs and code.
 
-**Dependency hygiene:** 5 of 8 pinned dependencies are outdated (2 with major version bumps available).
+**Dependency hygiene:** All 8 pinned dependencies are outdated (3 with major version bumps available).
 
 **Deferred features:** All 9 features listed in README "What's deferred (Phase 3b+)" are confirmed genuinely unbuilt.
 
@@ -38,7 +38,7 @@ pkgfence v0.3.0 is a well-architected dependency and supply-chain vulnerability 
 
 ```
 $ python -m pytest -q
-341 passed in 3.80s
+341 passed in 3.46s
 ```
 
 ### Coverage Summary
@@ -352,7 +352,7 @@ def save_baseline(path: Path, baseline: dict[str, Any]) -> None:
 
 **Impact:** Misleading documentation about the scope of portalocker usage.
 
-**Recommendation:** Correct `AGENTS.md` Dependencies table to read "portalocker 2.10.1 — Cross-platform file locking for feed cache atomic writes" to accurately scope its usage.
+**Recommendation:** Correct `AGENTS.md` dependencies table to read "portalocker 2.10.1 — Cross-platform file locking for feed cache atomic writes" to accurately scope its usage.
 
 **Severity:** MEDIUM (documentation drift)
 
@@ -605,7 +605,7 @@ for proj in filtered_projects:
 | # | Document | Claim | Actual | Severity |
 |---|----------|-------|--------|----------|
 | D1 | `AGENTS.md` header | "pytest 8.3.4" | `pyproject.toml:17` pins `pytest==9.0.3` | Medium |
-| D2 | `AGENTS.md` header | "Updated: 2026-04-10" | Last commit: 2026-07-08 | Low |
+| D2 | `AGENTS.md` header | "Updated: 2026-04-10" | Last commit: 2026-07-09 | Low |
 | D3 | `tests/AGENTS.md` | "179 pytest tests" | 341 tests | Medium |
 | D4 | `tests/AGENTS.md` | "pytest 8.3.4" | `pytest==9.0.3` | Medium |
 | D5 | `CHANGELOG.md:27` (v0.3.0) | "270 → 270 tests passing" | 341 tests | Medium |
@@ -614,7 +614,7 @@ for proj in filtered_projects:
 | D8 | `scripts/lib/sarif.py:91` | `"informationUri": "https://github.com/ryanm/pkgfence"` | `DEVELOPMENT.md:31` references `jimstratus/pkgfence` | High |
 | D9 | `AGENTS.md` Dependencies | "portalocker 2.10.1 — Cross-platform file locking for atomic writes" | Only used in `feed_cache.py`; `audit_log.py` and `baseline.py` do not use portalocker | Medium |
 | D10 | `scripts/enrich_threats.py:6` | "(Phase 2+: epss_score, deps.dev health, GHSA cross-check)" | EPSS is implemented (Phase 3a), comment is stale | Low |
-| D11 | `AGENTS.md` | "Updated: 2026-04-10" | Last commit: 2026-07-08 (3 months stale) | Low |
+| D11 | `AGENTS.md` | "Updated: 2026-04-10" | Last commit: 2026-07-09 (3 months stale) | Low |
 
 ---
 
@@ -704,13 +704,13 @@ All items listed in README "What's deferred (Phase 3b+)" are confirmed genuinely
 
 1. **Pipeline architecture is clean and well-ordered.** `scan_command.py:run_scan()` wires L1→L2→L3→L3.5→L4→Output→Publish as a fixed sequence with clear layer boundaries. Each layer has a local and remote variant, and the ordering decisions inside L4 are documented and load-bearing (issues #10, #11, #15).
 
-2. **Safety invariants are genuinely enforced, not just asserted.** S1–S4 are enforced through both static analysis and runtime checks. The S4a scoped exception is documented with a meaningful mitigation (version-token cap).
+2. **Safety invariants are genuinely enforced, not just asserted.** S1-S4 are enforced through both static analysis and runtime checks. The S4a scoped exception is documented with a meaningful mitigation (version-token cap).
 
 3. **Feed cache lifecycle is robust.** `FeedCacheClient` implements validate-before-publish (temp file + `os.replace`), degrade-once semantics, and stale-feed signaling. The per-process tmp name prevents concurrent-run cache poisoning. EPSS client adds host allowlist validation for redirect chains.
 
 4. **SCAN_ERROR isolation works.** A single bad target produces a SCAN_ERROR Finding that flows through L3/L4 unchanged. Status records are never deduped, enriched, scored, demoted, or excluded.
 
-5. **Test discipline.** 341 tests, all passing in 3.80s. 90% line coverage across `scripts/`. Every module has a corresponding test file. Safety invariant tests are non-negotiable.
+5. **Test discipline.** 341 tests, all passing in 3.46s. 90% line coverage across `scripts/`. Every module has a corresponding test file. Safety invariant tests are non-negotiable.
 
 6. **Dependency injection pattern.** `SSHRunner` is constructed in `scan_command.py` and passed to remote modules—never constructed inside consumers. This makes testing clean and prevents hidden coupling.
 
@@ -728,18 +728,18 @@ All items listed in README "What's deferred (Phase 3b+)" are confirmed genuinely
 
 pkgfence v0.3.0 is a well-engineered security scanner with robust safety invariants and clean pipeline design. The codebase demonstrates strong engineering discipline: comprehensive test coverage, enforced safety invariants, and clear architectural boundaries.
 
-**No critical safety-invariant breaks found.** All four safety invariants (S1–S4) pass their tests and the enforcement is substantive, not theatre. The S4a scoped exception has a documented residual risk (symlink escape) that is mitigated by the version-token cap.
+**No critical safety-invariant breaks found.** All four safety invariants (S1-S4) pass their tests and the enforcement is substantive, not theatre. The S4a scoped exception has a documented residual risk (symlink escape) that is mitigated by the version-token cap.
 
 **Key recommendations:**
 1. Fix SARIF version and URL (H2, H3)—quick wins with high impact
 2. Make baseline save atomic (M1)—crash-safety issue
-3. Correct documentation drift (D1–D11)—multiple stale claims
+3. Correct documentation drift (D1-D11)—multiple stale claims
 4. Upgrade outdated dependencies—8 of 8 are outdated, 3 with major version bumps
 
 **Overall assessment:** pkgfence v0.3.0 is production-ready with minor issues that should be addressed in the next release.
 
 ---
 
-**Review completed:** 2026-07-08  
+**Review completed:** 2026-07-09  
 **Test environment:** Python 3.13.5, pytest 9.0.3, Linux  
-**Test results:** 341 passed in 3.80s, 90% coverage
+**Test results:** 341 passed in 3.46s, 90% coverage
