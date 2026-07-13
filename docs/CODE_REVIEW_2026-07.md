@@ -275,7 +275,7 @@ except SSHUnreachableError as e:
 
 #### H2. SARIF Emitter Hardcoded Version "0.1.0"
 
-**File:** `scripts/lib/sarif.py:91`
+**File:** `scripts/lib/sarif.py:90`
 
 ```python
 "version": "0.1.0",
@@ -610,7 +610,7 @@ for proj in filtered_projects:
 | D4 | `tests/AGENTS.md` | "pytest 8.3.4" | `pytest==9.0.3` | Medium |
 | D5 | `CHANGELOG.md:27` (v0.3.0) | "270 → 270 tests passing" | 341 tests | Medium |
 | D6 | `CHANGELOG.md:197` (v0.1.0) | "Pinned dev deps: pytest==8.3.4" | `pyproject.toml:17` pins `pytest==9.0.3` | Low |
-| D7 | `scripts/lib/sarif.py:91` | `"version": "0.1.0"` | pkgfence is v0.3.0 | High |
+| D7 | `scripts/lib/sarif.py:90` | `"version": "0.1.0"` | pkgfence is v0.3.0 | High |
 | D8 | `scripts/lib/sarif.py:91` | `"informationUri": "https://github.com/ryanm/pkgfence"` | `DEVELOPMENT.md:31` references `jimstratus/pkgfence` | High |
 | D9 | `AGENTS.md` Dependencies | "portalocker 2.10.1 — Cross-platform file locking for atomic writes" | Only used in `feed_cache.py`; `audit_log.py` and `baseline.py` do not use portalocker | Medium |
 | D10 | `scripts/enrich_threats.py:6` | "(Phase 2+: epss_score, deps.dev health, GHSA cross-check)" | EPSS is implemented (Phase 3a), comment is stale | Low |
