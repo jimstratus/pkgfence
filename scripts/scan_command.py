@@ -289,11 +289,14 @@ def run_scan(
             degraded_modes.append(stale_msg)
 
     # Layer 3.7: Behavioral heuristics. entropy runs on purl names alone; the
-    # age heuristic is fed by deps.dev publishedTime already attached to findings
-    # (built into manifest_data below). lifecycle-script + provenance heuristics
-    # need registry packument data (npm packument / PyPI metadata) that isn't
-    # fetched yet — they remain no-ops until a registry-metadata client lands.
-    # Remote targets skip lifecycle + provenance (S4 invariant).
+    # age heuristic is fed by deps.dev version publishedTime already attached
+    # to findings (built into manifest_data below as version_published, which
+    # drives an age:stale-version flag — NOT age:abandoned, since version
+    # publish time is not package last-activity). Package-level created /
+    # modified timestamps (for age:new-package and age:abandoned) and
+    # lifecycle-script + provenance data need a registry packument client not
+    # yet built; those checks remain no-ops until one lands. Remote targets
+    # skip lifecycle + provenance (S4 invariant).
     manifest_data: dict[str, dict] = {}
     for f in findings:
         if is_status_record(f):
@@ -308,7 +311,7 @@ def run_scan(
         if not pkg_key:
             continue
         manifest_data.setdefault(mp, {})[pkg_key] = {
-            "modified": deps.get("published"),
+            "version_published": deps.get("published"),
         }
     heuristics_cfg = defaults.get("heuristics") or {}
     findings = run_heuristics(findings, manifest_data, heuristics_cfg)
@@ -353,7 +356,7 @@ def run_scan(
     # Baseline diff alarm — detect manifest-hash changes without new findings
     current_hashes = {m["path"]: m.get("manifest_hash", "") for m in manifests}
     prior_hashes = (prior_baseline or {}).get("manifest_hashes")
-    prior_count = len(prior_findings) if prior_findings else None
+    prior_count = len(prior_findings) if prior_findings is not None else None
     alarms = diff_alarms(current_hashes, prior_hashes, len(findings), prior_count)
     if alarms:
         degraded_modes.extend(alarms)

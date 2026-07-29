@@ -25,8 +25,13 @@ def _safe_component(value: str) -> str:
 
     Owner/repo derive from a parsed GitHub URL, but a malformed upstream URL
     could yield ``..`` or a value containing ``/`` and escape the cache dir.
+    Dots are allowlisted (org names can contain them), so a bare ``..`` is
+    collapsed separately.
     """
-    return _CACHE_SAFE_RE.sub("_", value)
+    s = _CACHE_SAFE_RE.sub("_", value)
+    if s in ("", ".", ".."):
+        s = "_"
+    return s
 
 
 class ScorecardClient:
@@ -58,7 +63,15 @@ class ScorecardClient:
         return None
 
     def _cache_path(self, owner: str, repo: str) -> Path:
-        return self.cache_dir / _safe_component(owner) / f"{_safe_component(repo)}.json"
+        path = self.cache_dir / _safe_component(owner) / f"{_safe_component(repo)}.json"
+        # Defense in depth: refuse to read/write anything that resolves
+        # outside the cache dir, in case any traversal survives sanitization.
+        try:
+            path.resolve().relative_to(self.cache_dir.resolve())
+        except ValueError:
+            log.warning("Scorecard cache path escapes cache_dir, blocking: %s", path)
+            return self.cache_dir / "_unsafe_blocked.json"
+        return path
 
     def _is_cache_fresh(self, cache_path: Path) -> bool:
         if not cache_path.exists():

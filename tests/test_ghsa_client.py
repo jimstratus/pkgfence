@@ -279,3 +279,35 @@ class TestGHSAHTTPClientRedirect:
         client = GHSAHTTPClient(cache_dir=tmp_path / "ghsa")
         result = client.fetch("GHSA-abcd-efgh-ijkl")
         assert result is None
+
+
+class TestGHSAHTTPClientFetchByCveHardening:
+    def test_fetch_by_cve_non_list_200_returns_none(self, mocker, tmp_path):
+        resp = mocker.MagicMock(status_code=200)
+        resp.json.return_value = {"not": "a list"}
+        resp.headers = {}
+        resp.url = httpx.URL("https://api.github.com/advisories")
+        mocker.patch("scripts.lib.ghsa_client.httpx.Client.get", return_value=resp)
+        mocker.patch.dict(os.environ, {"GITHUB_TOKEN": "", "GH_TOKEN": ""})
+        client = GHSAHTTPClient(cache_dir=tmp_path / "ghsa")
+        assert client.fetch_by_cve("CVE-2024-99999") is None
+
+    def test_fetch_by_cve_invalid_json_returns_none(self, mocker, tmp_path):
+        resp = mocker.MagicMock(status_code=200)
+        resp.json.side_effect = ValueError("not json")
+        resp.headers = {}
+        resp.url = httpx.URL("https://api.github.com/advisories")
+        mocker.patch("scripts.lib.ghsa_client.httpx.Client.get", return_value=resp)
+        mocker.patch.dict(os.environ, {"GITHUB_TOKEN": "", "GH_TOKEN": ""})
+        client = GHSAHTTPClient(cache_dir=tmp_path / "ghsa")
+        assert client.fetch_by_cve("CVE-2024-99999") is None
+
+    def test_fetch_by_cve_first_item_not_dict_returns_none(self, mocker, tmp_path):
+        resp = mocker.MagicMock(status_code=200)
+        resp.json.return_value = ["bare-string-not-a-dict"]
+        resp.headers = {}
+        resp.url = httpx.URL("https://api.github.com/advisories")
+        mocker.patch("scripts.lib.ghsa_client.httpx.Client.get", return_value=resp)
+        mocker.patch.dict(os.environ, {"GITHUB_TOKEN": "", "GH_TOKEN": ""})
+        client = GHSAHTTPClient(cache_dir=tmp_path / "ghsa")
+        assert client.fetch_by_cve("CVE-2024-99999") is None

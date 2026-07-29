@@ -11,12 +11,22 @@ def test_id_sort_key_orders_numeric_suffix_correctly():
     assert _id_sort_key("CVE-2025-9001") > _id_sort_key("CVE-2025-1000")
 
 
-def test_find_new_ids_numeric_threshold():
-    # Cursor at a 4-digit ID must still surface 5-digit IDs added later.
+def test_find_new_ids_set_based_diffe():
+    # Set-based diff: anything not previously seen is new.
     current = {"CVE-2025-9999", "CVE-2025-10000", "CVE-2025-10001"}
-    cursors = {"kev": {"last_id": "CVE-2025-9999"}}
+    cursors = {"kev": {"seen_ids": ["CVE-2025-9999"]}}
     new = find_new_ids(current, "kev", cursors)
     assert new == {"CVE-2025-10000", "CVE-2025-10001"}
+
+
+def test_find_new_ids_catches_out_of_order_addition():
+    # CISA adds older CVEs after newer ones. A high-water-mark cursor would
+    # drop CVE-2021-1000 once the cursor reached CVE-2025-9999; the set-based
+    # diff must still surface it.
+    current = {"CVE-2025-9999", "CVE-2021-1000"}
+    cursors = {"kev": {"seen_ids": ["CVE-2025-9999"]}}
+    new = find_new_ids(current, "kev", cursors)
+    assert new == {"CVE-2021-1000"}
 
 
 def test_find_new_ids_no_cursor_returns_all():
@@ -26,9 +36,9 @@ def test_find_new_ids_no_cursor_returns_all():
 
 def test_save_and_load_cursors_roundtrip(tmp_path):
     p = tmp_path / "cursors.json"
-    save_cursors(p, {"kev": {"last_id": "CVE-2025-10000", "total_known": 1}})
+    save_cursors(p, {"kev": {"seen_ids": ["CVE-2025-10000"], "total_known": 1}})
     loaded = load_cursors(p)
-    assert loaded["kev"]["last_id"] == "CVE-2025-10000"
+    assert loaded["kev"]["seen_ids"] == ["CVE-2025-10000"]
 
 
 def test_load_cursors_missing_file_returns_empty(tmp_path):

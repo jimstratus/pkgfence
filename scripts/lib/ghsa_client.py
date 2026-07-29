@@ -197,12 +197,19 @@ class GHSAHTTPClient:
                 self._check_degrade_on_errors()
                 return None
             if resp.status_code == 200:
-                items = resp.json() or []
-                if not items:
-                    self._write_cache(
-                        cache_path, {"cve_id": cve_id, "not_found": True}
+                try:
+                    items = resp.json()
+                except ValueError:
+                    log.warning(
+                        "GHSA CVE response not valid JSON for %s", cve_id
                     )
-                    self._consecutive_network_errors = 0
+                    self._consecutive_network_errors += 1
+                    self._check_degrade_on_errors()
+                    return None
+                if (not isinstance(items, list) or not items
+                        or not isinstance(items[0], dict)):
+                    self._consecutive_network_errors += 1
+                    self._check_degrade_on_errors()
                     return None
                 first = items[0]
                 advisory = self._normalize(first.get("ghsa_id", cve_id), first)

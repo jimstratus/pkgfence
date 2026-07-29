@@ -142,3 +142,23 @@ def test_get_vuln_cache_hit_avoids_network(tmp_state):
         result = client.get_vuln("MAL-0000-0001")
         assert not mock_client.return_value.__enter__.return_value.get.called
     assert result["summary"] == "cached"
+
+
+def test_get_vuln_invalid_json_returns_none(tmp_state):
+    with patch("scripts.lib.osv_client.httpx.Client") as mock_client:
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.side_effect = ValueError("bad json")
+        mock_client.return_value.__enter__.return_value.get.return_value = mock_response
+        client = OSVClient(cache_dir=tmp_state / "cache" / "osv")
+        assert client.get_vuln("MAL-0000-0000") is None
+
+
+def test_get_vuln_non_dict_returns_none(tmp_state):
+    with patch("scripts.lib.osv_client.httpx.Client") as mock_client:
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = ["not", "an", "object"]
+        mock_client.return_value.__enter__.return_value.get.return_value = mock_response
+        client = OSVClient(cache_dir=tmp_state / "cache" / "osv")
+        assert client.get_vuln("MAL-0000-0000") is None

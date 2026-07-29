@@ -103,6 +103,15 @@ def _check_age(
             modified_dt = _parse_iso(modified)
             if modified_dt and (now - modified_dt).days > abandoned_days:
                 flags.append("age:abandoned")
+        # version_published is the deps.dev publish time of this specific
+        # version, not the package's last activity — flag a stale version, not
+        # an abandoned package (an old pinned release of an active project is
+        # stale, not abandoned).
+        version_published = pkg_data.get("version_published")
+        if version_published:
+            vp_dt = _parse_iso(version_published)
+            if vp_dt and (now - vp_dt).days > abandoned_days:
+                flags.append("age:stale-version")
         if flags != (f.get("heuristic_flags") or []):
             f["heuristic_flags"] = flags
 

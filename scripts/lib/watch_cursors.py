@@ -46,8 +46,15 @@ def update_cursor(cursors: dict[str, Any], feed: str, last_id: str) -> dict[str,
 def find_new_ids(
     current_ids: set[str], feed: str, cursors: dict[str, Any]
 ) -> set[str]:
-    prior = cursors.get(feed, {}).get("last_id")
-    if not prior:
+    """Return IDs in ``current_ids`` not seen in the prior cursor.
+
+    Set-based, not threshold-based: CISA KEV routinely adds older CVEs after
+    newer ones, so feed insertion order does NOT match CVE numeric order. A
+    ``last_id`` high-water mark would silently drop a newly-added
+    ``CVE-2021-*`` once the cursor has reached ``CVE-2025-*``. Persisting the
+    full seen set and diffing catches out-of-order additions correctly.
+    """
+    seen = set(cursors.get(feed, {}).get("seen_ids") or [])
+    if not seen:
         return current_ids
-    prior_key = _id_sort_key(prior)
-    return {i for i in current_ids if _id_sort_key(i) > prior_key}
+    return current_ids - seen

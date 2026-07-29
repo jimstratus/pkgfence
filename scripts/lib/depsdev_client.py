@@ -25,8 +25,13 @@ def _safe_component(value: str) -> str:
     Package names are user-influenced (lookup mode takes a purl from argv;
     osv-scanner echoes upstream names). A name like ``../../etc`` or ``foo/bar``
     would otherwise escape the cache dir or collide with another package.
+    Dots are allowlisted (names like ``lodash.js`` are real), so a bare ``..``
+    is collapsed separately — otherwise it would traverse above the cache dir.
     """
-    return _CACHE_SAFE_RE.sub("_", value)
+    s = _CACHE_SAFE_RE.sub("_", value)
+    if s in ("", ".", ".."):
+        s = "_"
+    return s
 
 
 class DepsDevClient:
@@ -62,12 +67,20 @@ class DepsDevClient:
         return None
 
     def _cache_path(self, ecosystem: str, name: str, version: str) -> Path:
-        return (
+        path = (
             self.cache_dir
             / _safe_component(ecosystem)
             / _safe_component(name)
             / f"{_safe_component(version)}.json"
         )
+        # Defense in depth: refuse to read/write anything that resolves
+        # outside the cache dir, in case any traversal survives sanitization.
+        try:
+            path.resolve().relative_to(self.cache_dir.resolve())
+        except ValueError:
+            log.warning("deps.dev cache path escapes cache_dir, blocking: %s", path)
+            return self.cache_dir / "_unsafe_blocked.json"
+        return path
 
     def _is_cache_fresh(self, cache_path: Path) -> bool:
         if not cache_path.exists():

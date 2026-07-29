@@ -49,9 +49,15 @@ def _watch_kev(state_dir: Path) -> int:
     if new_ids:
         log.info("KEV: %d new entries detected", len(new_ids))
         _log_new_entries(state_dir, "kev", new_ids)
-    max_id = max(current_ids, key=_id_sort_key) if current_ids else ""
-    cursors["kev"] = {"last_id": max_id, "last_check": datetime.datetime.now(
-        datetime.timezone.utc).isoformat(), "total_known": len(current_ids)}
+    # Persist the full seen set so out-of-order additions (CISA adding an
+    # older CVE after a newer one) are still detected next cycle — ID order
+    # does not equal feed insertion order. sorted() by _id_sort_key keeps the
+    # cursor file stable/diffable.
+    cursors["kev"] = {
+        "seen_ids": sorted(current_ids, key=_id_sort_key),
+        "last_check": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "total_known": len(current_ids),
+    }
     save_cursors(cursors_path, cursors)
     return len(new_ids)
 

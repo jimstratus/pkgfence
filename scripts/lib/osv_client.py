@@ -183,7 +183,14 @@ class OSVClient:
             return None
         if resp.status_code != 200:
             return None
-        data = resp.json()
+        try:
+            data = resp.json()
+        except ValueError:
+            log.warning("OSV get_vuln response not valid JSON for %s", vuln_id)
+            return None
+        if not isinstance(data, dict):
+            log.warning("OSV get_vuln response not a JSON object for %s", vuln_id)
+            return None
         compact = {
             "id": data.get("id"),
             "summary": data.get("summary", ""),
