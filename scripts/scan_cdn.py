@@ -48,13 +48,16 @@ def scan_cdn_sri(
     for file_path in root.rglob("*"):
         if file_path.suffix.lower() not in EXTENSIONS:
             continue
-        if any(p in ex for p in file_path.parts):
+        if any(p in file_path.parts for p in ex):
             continue
         try:
             text = file_path.read_text(encoding="utf-8", errors="replace")
         except (OSError, UnicodeDecodeError):
             continue
-        for tag_re in (SCRIPT_RE, LINK_RE):
+        for tag_re, tag_name, attr in (
+            (SCRIPT_RE, "script", "src"),
+            (LINK_RE, "link", "href"),
+        ):
             for match in tag_re.finditer(text):
                 url = match.group(1)
                 host = _extract_host(url)
@@ -78,8 +81,7 @@ def scan_cdn_sri(
                     ),
                     remediation=(
                         f"Add integrity=\"sha384-...\" crossorigin=\"anonymous\" "
-                        f"to <{'script' if tag_re is SCRIPT_RE else 'link'}> "
-                        f"src=\"https://{url}\""
+                        f"to `<{tag_name}>` {attr}=\"https://{url}\""
                     ),
                 )
                 findings.append(f)

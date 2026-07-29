@@ -20,14 +20,13 @@ def generate_fix(finding: Finding) -> str | None:
         return finding["remediation"]
     purl = finding.get("purl", "")
     fix_version = finding.get("fix_version")
-    severity = finding.get("severity", "medium")
     if fix_version and purl:
         name = _extract_name(purl)
         eco = _extract_ecosystem(purl)
-        if eco == "npm":
-            return "npm" + " install " + name + "@" + fix_version
-        elif eco == "pypi":
-            return "pip" + " install " + name + "==" + fix_version
+        # Generic upgrade guidance only — never emit a concrete package-manager
+        # install command. S2 forbids install-command patterns in scripts/; the
+        # operator constructs the actual install command for their environment.
+        return f"Upgrade {name} to {fix_version} ({eco})"
     return f"Upgrade {purl} to a patched version (no fix_version available)"
 
 
