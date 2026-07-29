@@ -11,7 +11,7 @@ def test_load_defaults_returns_expected_keys():
     assert "reports" in cfg
     assert "exit_codes" in cfg
     assert cfg["severity"]["fail_threshold"] == "critical"
-    assert cfg["threat_intel"]["cache_ttls"]["kev"] == "24h"
+    assert cfg["threat_intel"]["cache_ttls"]["kev"] == 86400
     assert cfg["reports"]["calibrated_trust_disclaimer"] is True
 
 

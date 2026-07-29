@@ -40,7 +40,7 @@ from scripts.triage import (
     sort_findings,
     apply_exclusions,
 )
-from scripts.heuristics import run_heuristics
+from scripts.heuristics import run_heuristics, _manifest_key_from_purl
 from scripts.report import render_markdown_report
 from scripts.lib.baseline import save_baseline, load_baseline, diff_findings, diff_alarms
 from scripts.lib.kev_client import KEVClient
@@ -227,7 +227,12 @@ def run_scan(
 
     # CDN/SRI scan for local targets (Phase 5)
     for root_cfg in reg.get("roots") or []:
-        root_path = Path(root_cfg.get("path", ""))
+        raw_path = root_cfg.get("path", "")
+        if not raw_path:
+            # Missing/empty path would resolve Path("") to the cwd and trigger
+            # an unintended (potentially huge) scan. Skip such roots.
+            continue
+        root_path = Path(raw_path)
         if root_path.is_dir():
             cdn_findings = scan_cdn_sri(
                 root_path, target_name=root_cfg.get("name", str(root_path)),
@@ -245,16 +250,20 @@ def run_scan(
     # and degrade at most once per run.
     log.info("L3 enrichment starting")
     degraded_modes: list[str] = []
-    kev = KEVClient(cache_dir=state_dir / "cache" / "kev")
     threat_intel_cfg = defaults.get("threat_intel") or {}
+    ttls = threat_intel_cfg.get("cache_ttls", {})
+    kev = KEVClient(cache_dir=state_dir / "cache" / "kev",
+                    ttl_seconds=ttls.get("kev", 86400))
     ghsa = GHSAHTTPClient(
         cache_dir=state_dir / "cache" / "ghsa",
-        ttl_seconds=threat_intel_cfg.get("cache_ttls", {}).get("ghsa", 14400),
+        ttl_seconds=ttls.get("ghsa", 14400),
         token=os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN"),
     )
     epss = EPSSClient(cache_dir=state_dir / "cache" / "epss")
-    depsdev = DepsDevClient(cache_dir=state_dir / "cache" / "depsdev")
-    scorecard = ScorecardClient(cache_dir=state_dir / "cache" / "scorecard")
+    depsdev = DepsDevClient(cache_dir=state_dir / "cache" / "depsdev",
+                            ttl_seconds=ttls.get("deps_dev", 86400))
+    scorecard = ScorecardClient(cache_dir=state_dir / "cache" / "scorecard",
+                                ttl_seconds=ttls.get("scorecard", 604800))
     enrichers = [
         (kev, enrich_with_kev,
          "CISA KEV feed degraded — exploit-status not enriched",
@@ -279,11 +288,30 @@ def run_scan(
         elif client.is_stale:
             degraded_modes.append(stale_msg)
 
-    # Layer 3.7: Behavioral heuristics — runs from lockfile data, no API calls.
+    # Layer 3.7: Behavioral heuristics. entropy runs on purl names alone; the
+    # age heuristic is fed by deps.dev publishedTime already attached to findings
+    # (built into manifest_data below). lifecycle-script + provenance heuristics
+    # need registry packument data (npm packument / PyPI metadata) that isn't
+    # fetched yet — they remain no-ops until a registry-metadata client lands.
     # Remote targets skip lifecycle + provenance (S4 invariant).
-    # manifest_data is populated from L2 scanner output in future phases.
+    manifest_data: dict[str, dict] = {}
+    for f in findings:
+        if is_status_record(f):
+            continue
+        deps = f.get("deps_dev")
+        if not deps:
+            continue
+        mp = f.get("manifest_path", "")
+        if not mp:
+            continue
+        pkg_key = _manifest_key_from_purl(f.get("purl", ""))
+        if not pkg_key:
+            continue
+        manifest_data.setdefault(mp, {})[pkg_key] = {
+            "modified": deps.get("published"),
+        }
     heuristics_cfg = defaults.get("heuristics") or {}
-    findings = run_heuristics(findings, {}, heuristics_cfg)
+    findings = run_heuristics(findings, manifest_data, heuristics_cfg)
 
     # Layer 4: Triage
     log.info("L4 triage starting")
