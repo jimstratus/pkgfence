@@ -185,19 +185,11 @@ def _render_finding_card(f: Finding) -> str:
         name = deps.get("name", "?")
         version = deps.get("version", "?")
         licenses = ", ".join(deps.get("licenses") or []) or "unknown"
-        path = deps.get("transitive_path") or []
-        if path:
-            path_str = " \u2192 ".join(path)
-            lines.append(
-                f"- **Deps.dev:** {eco}:{name}@{version} \u2014 {licenses}, "
-                f"transitive ({path_str})"
-            )
-        else:
-            direct = "direct" if deps.get("is_direct") else "transitive"
-            lines.append(
-                f"- **Deps.dev:** {eco}:{name}@{version} \u2014 {licenses}, "
-                f"{direct}, {deps.get('advisories_count', 0)} advisories"
-            )
+        direct = "direct" if deps.get("is_direct") else "transitive"
+        lines.append(
+            f"- **Deps.dev:** {eco}:{name}@{version} \u2014 {licenses}, "
+            f"{direct}, {deps.get('advisories_count', 0)} advisories"
+        )
     sc = f.get("scorecard")
     if sc:
         score = sc.get("score", 0.0)

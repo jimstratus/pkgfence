@@ -62,13 +62,28 @@ def diff_alarms(
     if prior_hashes is None:
         return []
     alarms = []
-    for path, current_hash in current_hashes.items():
-        prior_hash = prior_hashes.get(path)
-        if prior_hash and prior_hash != current_hash:
+    # Iterate the union of prior/current paths so a manifest that disappeared
+    # between scans (root removed, target deleted) also fires — dropping a
+    # manifest without replacement is exactly the unauthorized change this
+    # function is meant to catch, not just hash drift on a surviving manifest.
+    for path in set(current_hashes) | set(prior_hashes):
+        in_current = path in current_hashes
+        in_prior = path in prior_hashes
+        if in_prior and not in_current:
             if prior_finding_count is not None and current_finding_count <= prior_finding_count:
                 alarms.append(
-                    f"Baseline diff: {path} hash changed "
-                    f"({prior_hash[:8]}... → {current_hash[:8]}...) "
-                    f"without new findings"
+                    f"Baseline diff: {path} manifest removed since last scan "
+                    f"(was {prior_hashes[path][:8]}...) without new findings"
                 )
+            continue
+        if in_current and in_prior:
+            prior_hash = prior_hashes[path]
+            current_hash = current_hashes[path]
+            if prior_hash != current_hash:
+                if prior_finding_count is not None and current_finding_count <= prior_finding_count:
+                    alarms.append(
+                        f"Baseline diff: {path} hash changed "
+                        f"({prior_hash[:8]}... → {current_hash[:8]}...) "
+                        f"without new findings"
+                    )
     return alarms

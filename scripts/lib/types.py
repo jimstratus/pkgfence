@@ -51,7 +51,7 @@ class DepsDevMetadata(TypedDict, total=False):
     licenses: list[str]
     links: list[dict]
     is_direct: bool
-    transitive_path: list[str]
+    published: str | None
     advisories_count: int
 
 

@@ -22,8 +22,12 @@ def _parse_purl_components(purl: str) -> tuple[str, str, str]:
 
 
 def _find_repo_url(finding: Finding) -> str | None:
-    """Find the GitHub repository URL for a package, from deps.dev links or
-    the GHSA advisory metadata."""
+    """Find the GitHub repository URL for a package from deps.dev links.
+
+    The GHSA advisory permalink (github.com/advisories/<GHSA>) is NOT a repo
+    URL — using it would make Scorecard query owner="advisories". Only deps.dev
+    repo/source/repository links are valid repo URLs.
+    """
     deps = finding.get("deps_dev")
     if deps:
         for link in deps.get("links") or []:
@@ -32,11 +36,6 @@ def _find_repo_url(finding: Finding) -> str | None:
                 "repo", "source", "repository"
             ):
                 return url
-    ghsa = finding.get("ghsa")
-    if ghsa:
-        permalink = ghsa.get("permalink", "")
-        if "github.com/advisories/" in permalink:
-            return permalink
     return None
 
 
