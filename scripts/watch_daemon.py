@@ -1,21 +1,20 @@
-"""Watch-mode daemon: polls threat-intel feeds for new entries and runs
-lookups against the cached registry.
+"""Watch-mode daemon: polls the CISA KEV feed for new entries.
 
-Checks KEV (hourly), GHSA (every 4h), and MAL feeds (every 6h). Uses
-watch cursors to track last-seen IDs so each new entry triggers exactly
-one lookup. Writes results to state/watch-log.jsonl.
+Currently KEV-only: GHSA and MAL feed polling are deferred (they need
+per-feed cadences and delta endpoints not yet built). Uses watch cursors to
+track the last-seen KEV ID so each new entry triggers exactly one log line.
+Writes results to state/watch-log.jsonl.
 """
 import datetime
 import json
-import os
 import signal
-import sys
 import time
 from pathlib import Path
 
 from scripts.lib.kev_client import KEVClient
-from scripts.lib.ghsa_client import GHSAHTTPClient
-from scripts.lib.watch_cursors import load_cursors, save_cursors, find_new_ids
+from scripts.lib.watch_cursors import (
+    load_cursors, save_cursors, find_new_ids, _id_sort_key,
+)
 from scripts.lib.logger import get_logger
 
 log = get_logger(__name__)
@@ -50,7 +49,7 @@ def _watch_kev(state_dir: Path) -> int:
     if new_ids:
         log.info("KEV: %d new entries detected", len(new_ids))
         _log_new_entries(state_dir, "kev", new_ids)
-    max_id = max(current_ids) if current_ids else ""
+    max_id = max(current_ids, key=_id_sort_key) if current_ids else ""
     cursors["kev"] = {"last_id": max_id, "last_check": datetime.datetime.now(
         datetime.timezone.utc).isoformat(), "total_known": len(current_ids)}
     save_cursors(cursors_path, cursors)
