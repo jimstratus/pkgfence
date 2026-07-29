@@ -10,6 +10,7 @@ Critic gap M8: cache read errors fall through to live fetch (no silent failure).
 """
 import hashlib
 import json
+import re
 import time
 from pathlib import Path
 from typing import Any, Optional
@@ -26,6 +27,8 @@ class OSVError(Exception):
 
 
 OSV_QUERYBATCH_URL = "https://api.osv.dev/v1/querybatch"
+OSV_VULN_URL = "https://api.osv.dev/v1/vulns"
+_VULN_ID_SAFE_RE = re.compile(r"[^A-Za-z0-9._-]")
 
 
 def _validate_query(q: dict) -> None:
@@ -145,3 +148,68 @@ class OSVClient:
         results = data.get("results", [])
         self._cache_set(queries, results)
         return results
+
+    def get_vuln(self, vuln_id: str) -> dict | None:
+        """Fetch a vulnerability by its OSV id (MAL-..., GHSA-..., CVE-...).
+
+        OSV is the canonical source for MAL-* malicious-package advisories,
+        which are not in the GitHub Advisory Database. Per-id file cache under
+        ``<cache_dir>/vulns/<id>.json`` keeps repeat lookups offline. Returns a
+        compact dict or None on 404 / network failure.
+        """
+        cache_path = self._vuln_cache_path(vuln_id)
+        if cache_path and cache_path.exists():
+            try:
+                age = time.time() - cache_path.stat().st_mtime
+                if age < self.cache_ttl_seconds:
+                    data = json.loads(cache_path.read_text(encoding="utf-8"))
+                    if data.get("not_found"):
+                        return None
+                    return data
+            except (IOError, OSError, json.JSONDecodeError) as e:
+                log.warning("OSV vuln cache read failed at %s: %s", cache_path, e)
+
+        try:
+            with httpx.Client(http2=True, timeout=self.timeout) as client:
+                resp = client.get(f"{OSV_VULN_URL}/{vuln_id}")
+        except httpx.HTTPError as e:
+            log.warning("OSV get_vuln failed for %s: %s", vuln_id, e)
+            return None
+        if resp.status_code == 404:
+            if cache_path:
+                self._write_vuln_cache(
+                    cache_path, {"id": vuln_id, "not_found": True}
+                )
+            return None
+        if resp.status_code != 200:
+            return None
+        data = resp.json()
+        compact = {
+            "id": data.get("id"),
+            "summary": data.get("summary", ""),
+            "details": data.get("details", ""),
+            "aliases": data.get("aliases") or [],
+            "severity": data.get("severity") or [],
+            "affected": data.get("affected") or [],
+            "published": data.get("published"),
+            "modified": data.get("modified"),
+            "withdrawn": data.get("withdrawn"),
+        }
+        if cache_path:
+            self._write_vuln_cache(cache_path, compact)
+        return compact
+
+    def _vuln_cache_path(self, vuln_id: str) -> Optional[Path]:
+        if not self.cache_dir:
+            return None
+        safe = _VULN_ID_SAFE_RE.sub("_", vuln_id)
+        return self.cache_dir / "vulns" / f"{safe}.json"
+
+    def _write_vuln_cache(self, path: Path, data: dict) -> None:
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                json.dumps(data, ensure_ascii=False), encoding="utf-8"
+            )
+        except (IOError, OSError) as e:
+            log.warning("OSV vuln cache write failed at %s: %s", path, e)

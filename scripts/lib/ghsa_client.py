@@ -45,7 +45,10 @@ class GHSAHTTPClient:
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.ttl_seconds = ttl_seconds
-        self.token = token
+        # Fall back to GITHUB_TOKEN/GH_TOKEN env vars when no token is passed
+        # so callers that don't wire it explicitly (e.g. lookup mode) still get
+        # authenticated (5000 req/hr vs 60 req/hr unauthenticated).
+        self.token = token if token is not None else _resolve_token()
         self.is_degraded = False
         self.is_stale = False
         self.advisories_fetched = 0
@@ -60,6 +63,31 @@ class GHSAHTTPClient:
             self.advisories_cached += 1
             return self._load_cache(cache_path)
         advisory = self._fetch_from_network(ghsa_id, cache_path)
+        if advisory is not None:
+            self.advisories_fetched += 1
+            return advisory
+        if cache_path.exists():
+            self.is_stale = True
+            self.advisories_cached += 1
+            return self._load_cache(cache_path)
+        return None
+
+    def fetch_by_cve(self, cve_id: str) -> dict | None:
+        """Look up the GHSA advisory for a CVE ID.
+
+        ``/advisories/{ghsa_id}`` (used by ``fetch``) expects a GHSA ID and
+        404s for CVE IDs. The list endpoint ``/advisories?cve_id=CVE-X`` returns
+        advisories matching that CVE; we take the first and normalize it.
+        Same cache/degrade/redirect plumbing, keyed under ``cve/`` so it never
+        pollutes the per-GHSA-ID cache with not_found markers.
+        """
+        if self.is_degraded:
+            return None
+        cache_path = self.cache_dir / "cve" / f"{cve_id}.json"
+        if self._is_cache_fresh(cache_path):
+            self.advisories_cached += 1
+            return self._load_cache(cache_path)
+        advisory = self._fetch_cve_from_network(cve_id, cache_path)
         if advisory is not None:
             self.advisories_fetched += 1
             return advisory
@@ -88,6 +116,7 @@ class GHSAHTTPClient:
         return data
 
     def _write_cache(self, cache_path: Path, data: dict) -> None:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
         cache_path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
 
     def _fetch_from_network(self, ghsa_id: str, cache_path: Path) -> dict | None:
@@ -141,6 +170,70 @@ class GHSAHTTPClient:
             self._check_degrade_on_errors()
             return None
 
+    def _fetch_cve_from_network(self, cve_id: str, cache_path: Path) -> dict | None:
+        try:
+            headers = {"Accept": "application/vnd.github+json"}
+            if self.token:
+                headers["Authorization"] = f"Bearer {self.token}"
+            with httpx.Client(
+                timeout=30.0, follow_redirects=True, max_redirects=3
+            ) as client:
+                resp = client.get(
+                    GHSA_API_BASE,
+                    params={"cve_id": cve_id, "per_page": 1},
+                    headers=headers,
+                )
+            url = resp.url
+            host = getattr(url, "host", None)
+            scheme = getattr(url, "scheme", None)
+            if host not in ALLOWED_HOSTS or (
+                isinstance(scheme, str) and scheme.lower() != "https"
+            ):
+                log.warning(
+                    "GHSA CVE fetch landed on disallowed URL %s (host=%s)",
+                    url, host,
+                )
+                self._consecutive_network_errors += 1
+                self._check_degrade_on_errors()
+                return None
+            if resp.status_code == 200:
+                items = resp.json() or []
+                if not items:
+                    self._write_cache(
+                        cache_path, {"cve_id": cve_id, "not_found": True}
+                    )
+                    self._consecutive_network_errors = 0
+                    return None
+                first = items[0]
+                advisory = self._normalize(first.get("ghsa_id", cve_id), first)
+                self._write_cache(cache_path, advisory)
+                self._consecutive_network_errors = 0
+                return advisory
+            if resp.status_code == 404:
+                self._write_cache(
+                    cache_path, {"cve_id": cve_id, "not_found": True}
+                )
+                self._consecutive_network_errors = 0
+                return None
+            if resp.status_code in (429, 403):
+                remaining = resp.headers.get("X-RateLimit-Remaining")
+                if remaining == "0":
+                    log.warning(
+                        "GHSA rate limit exhausted — marking client degraded"
+                    )
+                    self.is_degraded = True
+                self._consecutive_network_errors += 1
+                self._check_degrade_on_errors()
+                return None
+            self._consecutive_network_errors += 1
+            self._check_degrade_on_errors()
+            return None
+        except httpx.HTTPError as e:
+            log.warning("GHSA CVE fetch failed for %s: %s", cve_id, e)
+            self._consecutive_network_errors += 1
+            self._check_degrade_on_errors()
+            return None
+
     def _check_degrade_on_errors(self) -> None:
         if self._consecutive_network_errors >= 3:
             log.warning(
@@ -160,7 +253,10 @@ class GHSAHTTPClient:
             "severity": (response.get("severity") or "").lower(),
             "cvss_score": cvss.get("score"),
             "cvss_vector": cvss.get("vector_string"),
-            "cwes": [c["cwe_id"] for c in cwes_raw if c.get("cwe_id")],
+            "cwes": [
+                c["cwe_id"] for c in cwes_raw
+                if isinstance(c, dict) and c.get("cwe_id")
+            ],
             "permalink": response.get("html_url")
             or f"https://github.com/advisories/{ghsa_id}",
             "published_at": response.get("published_at"),

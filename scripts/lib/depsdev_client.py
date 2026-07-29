@@ -3,6 +3,7 @@
 Per-package JSON file cache. No auth required. Free tier, no rate limits.
 """
 import json
+import re
 import time
 from pathlib import Path
 
@@ -14,6 +15,18 @@ log = get_logger(__name__)
 
 DEPSDEV_API = "https://api.deps.dev/v3alpha"
 DEFAULT_TTL_SECONDS = 24 * 60 * 60
+
+_CACHE_SAFE_RE = re.compile(r"[^A-Za-z0-9._-]")
+
+
+def _safe_component(value: str) -> str:
+    """Sanitize a package/version string for use as a filesystem path component.
+
+    Package names are user-influenced (lookup mode takes a purl from argv;
+    osv-scanner echoes upstream names). A name like ``../../etc`` or ``foo/bar``
+    would otherwise escape the cache dir or collide with another package.
+    """
+    return _CACHE_SAFE_RE.sub("_", value)
 
 
 class DepsDevClient:
@@ -49,7 +62,12 @@ class DepsDevClient:
         return None
 
     def _cache_path(self, ecosystem: str, name: str, version: str) -> Path:
-        return self.cache_dir / ecosystem / name / f"{version}.json"
+        return (
+            self.cache_dir
+            / _safe_component(ecosystem)
+            / _safe_component(name)
+            / f"{_safe_component(version)}.json"
+        )
 
     def _is_cache_fresh(self, cache_path: Path) -> bool:
         if not cache_path.exists():
@@ -114,6 +132,6 @@ class DepsDevClient:
             "licenses": response.get("licenses") or [],
             "links": links,
             "is_direct": response.get("isDirect", False),
-            "transitive_path": [],
+            "published": response.get("publishedTime"),
             "advisories_count": len(response.get("advisoryKeys") or []),
         }

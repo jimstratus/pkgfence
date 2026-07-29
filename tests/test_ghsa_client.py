@@ -206,6 +206,9 @@ class TestGHSAHTTPClientToken:
         assert call_kwargs["headers"]["Accept"] == "application/vnd.github+json"
 
     def test_no_token_omits_auth_header(self, mocker, tmp_path):
+        # Clear any inherited GITHUB_TOKEN/GH_TOKEN so token=None resolves to
+        # no auth deterministically (the client falls back to env vars).
+        mocker.patch.dict(os.environ, {"GITHUB_TOKEN": "", "GH_TOKEN": ""})
         mock_get = mocker.patch("scripts.lib.ghsa_client.httpx.Client.get",
                                 return_value=mocker.MagicMock(
                                     status_code=200,
@@ -217,6 +220,54 @@ class TestGHSAHTTPClientToken:
         client.fetch("GHSA-abcd-efgh-ijkl")
         call_kwargs = mock_get.call_args[1]
         assert "Authorization" not in call_kwargs["headers"]
+
+    def test_no_token_falls_back_to_env(self, mocker, tmp_path):
+        # token=None must pick up GITHUB_TOKEN from the environment so callers
+        # that don't wire a token explicitly (lookup mode) still authenticate.
+        mocker.patch.dict(os.environ, {"GITHUB_TOKEN": "ghp_envtoken"})
+        mock_get = mocker.patch("scripts.lib.ghsa_client.httpx.Client.get",
+                                return_value=mocker.MagicMock(
+                                    status_code=200,
+                                    json=lambda: _make_advisory(),
+                                    headers={},
+                                    url=httpx.URL("https://api.github.com/advisories/GHSA-abcd-efgh-ijkl"),
+                                ))
+        client = GHSAHTTPClient(cache_dir=tmp_path / "ghsa", token=None)
+        client.fetch("GHSA-abcd-efgh-ijkl")
+        call_kwargs = mock_get.call_args[1]
+        assert call_kwargs["headers"]["Authorization"] == "Bearer ghp_envtoken"
+
+
+class TestGHSAHTTPClientFetchByCve:
+    def _mock_list_response(self, mocker, items, status_code=200):
+        resp = mocker.MagicMock(status_code=status_code)
+        resp.json.return_value = items
+        resp.headers = {}
+        resp.url = httpx.URL("https://api.github.com/advisories")
+        mocker.patch("scripts.lib.ghsa_client.httpx.Client.get", return_value=resp)
+
+    def test_fetch_by_cve_returns_first_advisory(self, mocker, tmp_path):
+        self._mock_list_response(mocker, [_make_advisory()])
+        mocker.patch.dict(os.environ, {"GITHUB_TOKEN": "", "GH_TOKEN": ""})
+        client = GHSAHTTPClient(cache_dir=tmp_path / "ghsa")
+        result = client.fetch_by_cve("CVE-2024-99999")
+        assert result is not None
+        assert result["cve_id"] == "CVE-2024-99999"
+        assert result["ghsa_id"] == "GHSA-abcd-efgh-ijkl"
+
+    def test_fetch_by_cve_empty_list_returns_none(self, mocker, tmp_path):
+        self._mock_list_response(mocker, [])
+        mocker.patch.dict(os.environ, {"GITHUB_TOKEN": "", "GH_TOKEN": ""})
+        client = GHSAHTTPClient(cache_dir=tmp_path / "ghsa")
+        result = client.fetch_by_cve("CVE-2024-0000")
+        assert result is None
+
+    def test_fetch_by_cve_caches_under_cve_subdir(self, mocker, tmp_path):
+        self._mock_list_response(mocker, [_make_advisory()])
+        mocker.patch.dict(os.environ, {"GITHUB_TOKEN": "", "GH_TOKEN": ""})
+        client = GHSAHTTPClient(cache_dir=tmp_path / "ghsa")
+        client.fetch_by_cve("CVE-2024-99999")
+        assert (tmp_path / "ghsa" / "cve" / "CVE-2024-99999.json").exists()
 
 
 class TestGHSAHTTPClientRedirect:

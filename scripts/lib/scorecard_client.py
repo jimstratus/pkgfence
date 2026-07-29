@@ -3,6 +3,7 @@
 Per-repo JSON file cache. No auth required. 7d TTL (scores change slowly).
 """
 import json
+import re
 import time
 from pathlib import Path
 
@@ -14,6 +15,18 @@ log = get_logger(__name__)
 
 SCORECARD_API = "https://api.securityscorecards.dev"
 DEFAULT_TTL_SECONDS = 7 * 24 * 60 * 60
+ALLOWED_HOSTS = frozenset({"api.securityscorecards.dev"})
+
+_CACHE_SAFE_RE = re.compile(r"[^A-Za-z0-9._-]")
+
+
+def _safe_component(value: str) -> str:
+    """Sanitize owner/repo for use as a filesystem path component.
+
+    Owner/repo derive from a parsed GitHub URL, but a malformed upstream URL
+    could yield ``..`` or a value containing ``/`` and escape the cache dir.
+    """
+    return _CACHE_SAFE_RE.sub("_", value)
 
 
 class ScorecardClient:
@@ -45,7 +58,7 @@ class ScorecardClient:
         return None
 
     def _cache_path(self, owner: str, repo: str) -> Path:
-        return self.cache_dir / owner / f"{repo}.json"
+        return self.cache_dir / _safe_component(owner) / f"{_safe_component(repo)}.json"
 
     def _is_cache_fresh(self, cache_path: Path) -> bool:
         if not cache_path.exists():
@@ -64,9 +77,27 @@ class ScorecardClient:
 
     def _fetch_score(self, owner: str, repo: str, cache_path: Path) -> dict | None:
         try:
-            with httpx.Client(timeout=15.0) as client:
+            with httpx.Client(
+                timeout=15.0, follow_redirects=True, max_redirects=3
+            ) as client:
                 resp = client.get(
                     f"{SCORECARD_API}/projects/github.com/{owner}/{repo}")
+            # Redirect defense (mirrors GHSAHTTPClient): final URL host must be
+            # the Scorecard API. A 301/302 to an unexpected host would otherwise
+            # surface whatever body is returned and mask a config issue.
+            url = resp.url
+            host = getattr(url, "host", None)
+            scheme = getattr(url, "scheme", None)
+            if host not in ALLOWED_HOSTS or (
+                isinstance(scheme, str) and scheme.lower() != "https"
+            ):
+                log.warning(
+                    "Scorecard fetch landed on disallowed URL %s (host=%s)",
+                    url, host,
+                )
+                self._consecutive_network_errors += 1
+                self._check_degrade()
+                return None
             if resp.status_code == 200:
                 data = resp.json()
                 result = self._normalize(data)

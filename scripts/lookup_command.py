@@ -5,12 +5,15 @@ import sys
 import time
 from pathlib import Path
 
+import httpx
+
 from scripts.lookup_parser import parse_query
 from scripts.lookup_websearch import web_search, build_search_query
 from scripts.lookup_report import render_lookup_markdown, render_lookup_json
 from scripts.lib.kev_client import KEVClient
 from scripts.lib.epss_client import EPSSClient
 from scripts.lib.ghsa_client import GHSAHTTPClient
+from scripts.lib.osv_client import OSVClient
 from scripts.lib.logger import get_logger
 
 log = get_logger(__name__)
@@ -28,12 +31,13 @@ def _lookup_cve(cve_id: str, state_dir: Path) -> dict:
         futures = {
             "kev": ex.submit(kev.is_known_exploited, cve_id),
             "epss": ex.submit(epss.lookup, cve_id),
-            "ghsa": ex.submit(ghsa.fetch, cve_id),
+            # CVE IDs go through the list endpoint, not /advisories/{id}.
+            "ghsa": ex.submit(ghsa.fetch_by_cve, cve_id),
         }
         for k, f in futures.items():
             try:
                 result[k] = f.result(timeout=15)
-            except (concurrent.futures.TimeoutError, Exception):
+            except (concurrent.futures.TimeoutError, httpx.HTTPError):
                 result[k] = None
     return result
 
@@ -51,19 +55,22 @@ def _lookup_ghsa(ghsa_id: str, state_dir: Path) -> dict:
             f_epss = ex.submit(epss.lookup, cve)
             try:
                 result["kev"] = f_kev.result(timeout=15)
-            except Exception:
+            except (concurrent.futures.TimeoutError, httpx.HTTPError):
                 result["kev"] = None
             try:
                 result["epss"] = f_epss.result(timeout=15)
-            except Exception:
+            except (concurrent.futures.TimeoutError, httpx.HTTPError):
                 result["epss"] = None
     return result
 
 
 def _lookup_mal(mal_id: str, state_dir: Path) -> dict:
-    ghsa = GHSAHTTPClient(cache_dir=state_dir / "cache" / "ghsa")
-    advisory = ghsa.fetch(mal_id)
-    return {"ghsa": advisory}
+    # MAL-* IDs are OSV malicious-package advisories, not in the GitHub
+    # Advisory Database — route through OSV instead of polluting the GHSA
+    # cache with not_found markers.
+    osv = OSVClient(cache_dir=state_dir / "cache" / "osv")
+    vuln = osv.get_vuln(mal_id)
+    return {"osv": vuln}
 
 
 def run_lookup(query: str, no_web: bool = False, timeout: int = 8,
@@ -87,7 +94,7 @@ def run_lookup(query: str, no_web: bool = False, timeout: int = 8,
         consulted = ["ghsa", "kev", "epss"]
         advisory = _lookup_ghsa(parsed["value"], state_dir)
     elif t == "mal":
-        consulted = ["ghsa"]
+        consulted = ["osv"]
         advisory = _lookup_mal(parsed["value"], state_dir)
     else:
         consulted = []
