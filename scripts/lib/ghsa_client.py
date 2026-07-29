@@ -206,8 +206,21 @@ class GHSAHTTPClient:
                     self._consecutive_network_errors += 1
                     self._check_degrade_on_errors()
                     return None
-                if (not isinstance(items, list) or not items
-                        or not isinstance(items[0], dict)):
+                if not isinstance(items, list):
+                    self._consecutive_network_errors += 1
+                    self._check_degrade_on_errors()
+                    return None
+                if not items:
+                    # Empty list = no advisory maps to this CVE. A legitimate
+                    # not-found, not a network/shape error — negative-cache it
+                    # and reset the error counter so unmapped CVEs don't
+                    # degrade the whole client.
+                    self._write_cache(
+                        cache_path, {"cve_id": cve_id, "not_found": True}
+                    )
+                    self._consecutive_network_errors = 0
+                    return None
+                if not isinstance(items[0], dict):
                     self._consecutive_network_errors += 1
                     self._check_degrade_on_errors()
                     return None

@@ -53,8 +53,20 @@ def find_new_ids(
     ``last_id`` high-water mark would silently drop a newly-added
     ``CVE-2021-*`` once the cursor has reached ``CVE-2025-*``. Persisting the
     full seen set and diffing catches out-of-order additions correctly.
+
+    Legacy cursors written with only ``last_id`` (no ``seen_ids``) are migrated
+    silently: emit no new entries this one cycle so the entire feed isn't
+    replayed as "new". The caller then persists ``seen_ids = current``, after
+    which subsequent cycles diff correctly.
     """
-    seen = set(cursors.get(feed, {}).get("seen_ids") or [])
-    if not seen:
-        return current_ids
-    return current_ids - seen
+    feed_cursor = cursors.get(feed, {})
+    if "seen_ids" in feed_cursor:
+        seen = set(feed_cursor.get("seen_ids") or [])
+        if not seen:
+            return current_ids
+        return current_ids - seen
+    if feed_cursor.get("last_id") is not None:
+        # Legacy cursor shape from a prior version — migrate without replaying.
+        return set()
+    # No prior cursor at all: first run, everything is new.
+    return current_ids

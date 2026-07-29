@@ -43,3 +43,10 @@ def test_save_and_load_cursors_roundtrip(tmp_path):
 
 def test_load_cursors_missing_file_returns_empty(tmp_path):
     assert load_cursors(tmp_path / "nope.json") == {}
+
+def test_find_new_ids_legacy_last_id_cursor_migrates_silently():
+    # A cursor written by the previous version (last_id only, no seen_ids)
+    # must NOT replay the entire feed as new on the first post-upgrade cycle.
+    current = {"CVE-2025-1", "CVE-2025-2", "CVE-2025-3"}
+    cursors = {"kev": {"last_id": "CVE-2025-2"}}
+    assert find_new_ids(current, "kev", cursors) == set()

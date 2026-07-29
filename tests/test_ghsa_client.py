@@ -261,6 +261,20 @@ class TestGHSAHTTPClientFetchByCve:
         client = GHSAHTTPClient(cache_dir=tmp_path / "ghsa")
         result = client.fetch_by_cve("CVE-2024-0000")
         assert result is None
+        # An empty list is a legitimate "no advisory maps to this CVE", not an
+        # error: a negative-cache marker is written and the client must NOT
+        # degrade (so unmapped CVEs don't eventually take the whole client down).
+        assert (tmp_path / "ghsa" / "cve" / "CVE-2024-0000.json").exists()
+        assert client.is_degraded is False
+        assert client._consecutive_network_errors == 0
+
+    def test_fetch_by_cve_repeated_empty_lists_do_not_degrade(self, mocker, tmp_path):
+        self._mock_list_response(mocker, [])
+        mocker.patch.dict(os.environ, {"GITHUB_TOKEN": "", "GH_TOKEN": ""})
+        client = GHSAHTTPClient(cache_dir=tmp_path / "ghsa")
+        for cve in ("CVE-2024-0001", "CVE-2024-0002", "CVE-2024-0003"):
+            assert client.fetch_by_cve(cve) is None
+        assert client.is_degraded is False
 
     def test_fetch_by_cve_caches_under_cve_subdir(self, mocker, tmp_path):
         self._mock_list_response(mocker, [_make_advisory()])
