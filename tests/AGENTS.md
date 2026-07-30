@@ -4,7 +4,7 @@
 # tests
 
 ## Purpose
-179 pytest tests covering unit, integration, safety invariants, and ecosystem validation. Organized as one test file per source module, plus dedicated safety invariant test files.
+437 pytest tests covering unit, integration, safety invariants, and ecosystem validation. Organized as one test file per source module, plus dedicated safety invariant test files.
 
 ## Key Files
 
@@ -72,7 +72,7 @@
 - `fixtures/` — test lockfiles
 
 ### External
-- `pytest 8.3.4` — test framework
+- `pytest 9.0.3` — test framework
 - `pytest-mock 3.14.0` — `mocker` fixture for patching
 - `pytest-cov 5.0.0` — coverage reporting
 

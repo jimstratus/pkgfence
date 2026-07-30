@@ -20,6 +20,13 @@ class SSHUnreachableError(Exception):
     to a silent local fallback. NEVER suppressed."""
 
 
+class SSHArgumentError(ValueError):
+    """Raised when an SSH argv element fails validation (forbidden control
+    character in a path). A per-path issue, not a programming bug like a
+    disallowed command — callers convert this to a per-manifest SCAN_ERROR
+    rather than aborting the whole scan."""
+
+
 # S3: command allowlist for SSH targets — only read-syscall and scanner commands
 ALLOWED_COMMANDS = frozenset({
     "find", "cat", "sha256sum", "ls", "stat",
@@ -44,7 +51,7 @@ class SSHRunner:
 
     # Control characters that can never appear in a legitimate remote argv
     # element. Newlines would also corrupt line-oriented output parsing.
-    _FORBIDDEN_ARG_CHARS = ("\x00", "\n", "\r")
+    _FORBIDDEN_ARG_CHARS = ("\x00", "\n", "\r", "\t")
 
     def _check_allowlist(self, command: List[str]) -> None:
         """Raise ValueError if command is empty, its basename is not in the
@@ -58,7 +65,7 @@ class SSHRunner:
             )
         for arg in command:
             if any(c in arg for c in self._FORBIDDEN_ARG_CHARS):
-                raise ValueError(
+                raise SSHArgumentError(
                     f"Forbidden control character in SSH argument: {arg!r}"
                 )
 

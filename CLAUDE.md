@@ -61,6 +61,7 @@ If any safety test fails, the tool is broken and must NOT be used.
 | S2 | No `npm install` / `pip install` / any package-manager install in scripts | Static regex over `scripts/**/*.py` |
 | S3 | SSH commands limited to: `find, cat, sha256sum, ls, stat, osv-scanner, trivy, zizmor` | `ALLOWED_COMMANDS` frozenset in `ssh_runner.py` |
 | S4 | No remote file content exfiltration (no scp/rsync/cat reads of manifests) | Static regex in `test_s4_no_remote_content_exfil.py` |
+| S4a | EOL remote version-file reads are a scoped S4 exception: `cat` is allowed only on absolute paths under `discover_paths`, with no `..` segments, and the version-token cap (`_VERSION_RE`, ≤64 chars, `[0-9A-Za-z._+~-]`) bounds what transits. **Residual risk:** a symlink under `discover_paths` can point elsewhere — accepted because the token cap limits exfiltration to one short token, not file contents (e.g. `/etc/shadow` fails token validation). | `eol_detect.py:_is_safe_remote_version_path` + `test_s4_no_remote_content_exfil.py` |
 
 ## Critical Gotchas
 
@@ -96,4 +97,4 @@ pre-quote or pre-escape. Pass find's grouping operators as bare `"("` / `")"`.
 
 ## Current Release
 
-v0.3.0 — Phase 3a (EPSS + triple-score ranking) on top of Phase 1 (local scan) + Phase 2 (SSH remote scan + publish), plus the #7–#20 security/correctness hardening pass. See `docs/ARCHITECTURE.md` for the current architecture.
+v0.5.0 — Phase 3 complete (GHSA, behavioral heuristics, deps.dev + OpenSSF Scorecard, lookup mode) + Phase 4/5 (watch daemon, baseline diff alarm, fix recommendations, CDN/SRI scanner, against-reality canaries) on top of Phase 1 (local scan) + Phase 2 (SSH remote scan + publish) and the #7–#20 hardening pass. See `docs/ARCHITECTURE.md` for the current architecture.

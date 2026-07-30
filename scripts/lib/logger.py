@@ -25,7 +25,14 @@ def _configure_once() -> None:
     log_dir = state_dir / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
 
-    root = logging.getLogger("pkgfence")
+    # Attach handlers to the ``scripts`` logger: every module calls
+    # get_logger(__name__), and __name__ is always scripts.<x> (or
+    # scripts.lib.<x>), so ``scripts`` is their common ancestor. A sibling
+    # logger like "pkgfence" would NOT receive their records via propagation
+    # (propagation follows the name hierarchy scripts.<x> -> scripts -> root,
+    # never to a sibling), so attaching here is what actually routes module
+    # logs to pkgfence.log.
+    root = logging.getLogger("scripts")
     root.setLevel(logging.DEBUG)
 
     fmt = logging.Formatter(

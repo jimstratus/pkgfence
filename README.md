@@ -4,7 +4,7 @@ Multi-codebase dependency and supply-chain vulnerability scanner, delivered as a
 
 Scans local repositories and remote SSH targets for known CVEs (via osv-scanner v2 or OSV API fallback), malicious packages (via OpenSSF Malicious Packages `MAL-*` overlays), and behavioral red flags. Produces ranked, triaged reports with copy-pasteable remediation. Calibrated-trust disclaimers and per-finding cards make it explicit what was scanned and what wasn't.
 
-**Status: 🟢 v0.3.0 — Phase 3a (EPSS + triple-score ranking), hardened.** Local + remote SSH scanning, triple-signal risk ranking, auto-publish, and the #7–#20 security/correctness hardening pass.
+**Status: 🟢 v0.5.0 — Phase 3 complete + Phase 4/5 (lookup, watch, fix recs, CDN/SRI scanner), hardened.** Local + remote SSH scanning, triple-signal risk ranking, 7-source enrichment, on-demand lookup, watch daemon, baseline diff alarms, auto-publish, and the #7–#20 security/correctness hardening pass.
 
 > **Architecture:** see **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** for the full
 > pipeline, data-flow, feed-cache, and safety-boundary diagrams.
@@ -20,7 +20,7 @@ flowchart LR
     OUT --> L5[L5 Publish<br/>scp sink]
 ```
 
-## What works today (v0.3.0)
+## What works today (v0.5.0)
 
 - `pkgfence scan` against local registry roots AND remote SSH targets in one pass
 - Registry CLI: `validate`, `list`, `add-root`, `add-project`, `add-ssh`, `remove`
@@ -38,19 +38,26 @@ flowchart LR
 - Markdown report + YAML frontmatter + SARIF 2.1.0 + per-run JSONL audit log
 - `pkgfence-notify` — fire a webhook when a run surfaces genuinely-new (or escalated) findings above a threshold
 - Resilient threat-intel feeds: validate-before-publish caching, degrade-once, and an operator-visible stale-feed signal
-- Hard safety invariants S1, S2, S3, S4 enforced by tests
+- **GHSA advisory enrichment** (CVE alias injection, CVSS/description fallback, per-advisory cache)
+- **deps.dev + OpenSSF Scorecard** package metadata + repo health scores
+- **Behavioral heuristics** — entropy (typosquatting), `age:stale-version` from deps.dev publishedTime; lifecycle-script + provenance hookpoints wired (await registry-metadata client)
+- **`pkgfence lookup`** — on-demand CVE/GHSA/MAL/package lookup for incident response (concurrent sources + optional web search)
+- **`pkgfence-watch`** — daemon polling CISA KEV for new entries (set-based cursors, `watch-log.jsonl`)
+- **Baseline diff alarms** — manifest-hash changes and removed manifests without new findings
+- **`--with-fixes`** — JSON fix-recommendation document (generic, S2-safe upgrade guidance)
+- **CDN/SRI scanner** — flags CDN `<script>`/`<link>` loads missing `integrity` hashes
+- Hard safety invariants S1, S2, S3, S4 (and documented S4a EOL scoped exception) enforced by tests
 - Four-state exit codes (0 clean / 1 findings / 2 scanner error / 3 config error)
-- **341 tests passing**, every code path TDD-built
+- **437 tests passing**, every code path TDD-built
 
-## What's deferred (Phase 3b+)
+## What's deferred (v2+)
 
 - GitHub mode (api / clone)
 - Auto-bootstrap (`pkgfence ssh bootstrap <name>`) — manual osv-scanner install still required for now
-- Watch mode (scheduled monitoring + baseline drift detection)
 - Audit mode (deep one-shot review with extra scanners)
-- Layer 5 fix-recommendation pipeline (LLM recommend → critic review → text doc)
-- deps.dev + OpenSSF Scorecard enrichment
-- Behavioral heuristics (age, lifecycle scripts, provenance)
+- LLM fix critic (recommend → critic review → text doc) — `--with-fixes` emits the recommendation doc today; the critic pass is deferred
+- Lifecycle-script + provenance heuristics fully populated (need an npm-packument / PyPI metadata client; hookpoints are wired, `age:stale-version` works today)
+- zizmor workflow scanning and full ecosystem fixtures (rust/go/ruby/php/java/docker)
 - Coarse reachability tiering
 - Meta mode (audit `.claude/`, `.cursor/`, `mcp.json`)
 
@@ -114,7 +121,7 @@ pkgfence/
 │       ├── ssh_runner.py               ← SSH runner (shlex-quoted, allowlisted, ControlMaster)
 │       ├── remote_types.py             ← RemoteManifest TypedDict
 │       └── registry.py                 ← registry load/validate/atomic-write
-└── tests/                              ← 341 tests
+└── tests/                              ← 437 tests
     ├── conftest.py                     ← shared tmp_state, tmp_registry fixtures
     ├── fixtures/
     │   ├── npm/{vulnerable,clean,corrupted}/
@@ -235,7 +242,7 @@ Phase 2 SSH support closed the loop on the second class. During tier-1 dogfood, 
 
 ## Development
 
-- **Test suite**: `python -m pytest -v` (341 tests, all passing)
+- **Test suite**: `python -m pytest -v` (437 tests, all passing)
 - **Coverage**: `python -m pytest --cov=scripts --cov-report=term-missing`
 - **Lint**: not yet configured (Phase 5)
 - **CI**: GitHub Actions workflow at `.github/workflows/test.yml`

@@ -10,7 +10,9 @@ Critic gap M8: cache read errors fall through to live fetch (no silent failure).
 """
 import hashlib
 import json
+import os
 import re
+import tempfile
 import time
 from pathlib import Path
 from typing import Any, Optional
@@ -95,11 +97,18 @@ class OSVClient:
         path = self._cache_path(queries)
         if not path:
             return
+        # Atomic write (temp file + os.replace) so a concurrent run can't read
+        # a half-written cache. Self-healing on parse failure regardless.
         try:
-            path.write_text(
-                json.dumps({"results": results}, separators=(",", ":")),
-                encoding="utf-8",
-            )
+            fd, tmp = tempfile.mkstemp(prefix=".osv.", suffix=".json.tmp", dir=path.parent)
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    f.write(json.dumps({"results": results}, separators=(",", ":")))
+                os.replace(tmp, path)
+            except Exception:
+                if os.path.exists(tmp):
+                    os.unlink(tmp)
+                raise
         except (IOError, OSError) as e:
             log.warning("OSV cache write failed at %s: %s", path, e)
 

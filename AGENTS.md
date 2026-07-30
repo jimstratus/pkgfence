@@ -81,7 +81,7 @@ Current release: **v0.3.0** (Phase 3a: EPSS enrichment + Triple-Score ranking).
 - `trivy`, `zizmor` (optional) — Additional S3-allowlisted scanners
 
 ### Dev
-- `pytest 8.3.4` + `pytest-cov` + `pytest-mock`
+- `pytest 9.0.3` + `pytest-cov` + `pytest-mock`
 
 ### Phase 3a additions (v0.3.0)
 - `scripts/lib/epss_client.py` — EPSS CSV download + 24h TTL cache

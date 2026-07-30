@@ -7,14 +7,31 @@ scans (diff-aware default mode).
 Storage: per-target JSON file under state/baselines/<target-name>.json.
 """
 import json
+import os
+import tempfile
 from pathlib import Path
 from typing import Any, Optional
 
 
 def save_baseline(path: Path, baseline: dict[str, Any]) -> None:
+    """Atomic write: temp file in the same dir, then os.replace.
+
+    A crash mid-write otherwise leaves a truncated JSON baseline that would
+    corrupt the next scan's diff. os.replace is atomic on POSIX and Windows
+    when source and destination share a filesystem, which the same-dir temp
+    guarantees.
+    """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(baseline, indent=2, sort_keys=True), encoding="utf-8")
+    fd, tmp = tempfile.mkstemp(prefix=".baseline.", suffix=".json.tmp", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(baseline, f, indent=2, sort_keys=True)
+        os.replace(tmp, path)
+    except Exception:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        raise
 
 
 def load_baseline(path: Path) -> Optional[dict[str, Any]]:

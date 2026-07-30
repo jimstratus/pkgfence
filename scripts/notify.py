@@ -7,7 +7,6 @@ Exit codes:
 """
 import argparse
 import datetime
-import logging
 import socket
 import sys
 from pathlib import Path
@@ -16,9 +15,10 @@ import httpx
 
 from scripts.lib.baseline import load_baseline
 from scripts.lib.frontmatter import parse_frontmatter
+from scripts.lib.logger import get_logger
 from scripts.lib.types import SEVERITY_RANK, is_status_record
 
-log = logging.getLogger(__name__)
+log = get_logger(__name__)
 
 ALL_SEVERITIES = list(SEVERITY_RANK)
 

@@ -4,7 +4,6 @@ Performs its own filesystem walk (separate from L1 manifest discovery) to
 detect end-of-life software installations. Walks vendor/ directories too —
 do NOT add DEFAULT_EXCLUDES here.
 """
-import logging
 import os
 import re
 from pathlib import Path, PurePosixPath
@@ -12,9 +11,10 @@ from typing import Any
 
 from scripts.lib.config import load_yaml
 from scripts.lib.ssh_runner import SSHRunner, SSHUnreachableError
+from scripts.lib.logger import get_logger
 from scripts.lib.types import Finding, new_finding
 
-log = logging.getLogger(__name__)
+log = get_logger(__name__)
 
 SKILL_ROOT = Path(__file__).parent.parent
 EOL_CATALOG_PATH = SKILL_ROOT / "config" / "eol-catalog.yaml"
