@@ -73,15 +73,15 @@ Current release: **v0.3.0** (Phase 3a: EPSS enrichment + Triple-Score ranking).
 ## Dependencies
 
 ### External
-- `ruamel.yaml 0.18.6` — YAML round-trip parsing (preserves comments + insertion order)
-- `httpx[http2] 0.27.2` — HTTP client for KEV/OSV/EPSS API calls
-- `jsonschema 4.23.0` — Registry schema validation
-- `portalocker 2.10.1` — Cross-platform file locking for atomic writes
+- `ruamel.yaml 0.19.1` — YAML round-trip parsing (preserves comments + insertion order)
+- `httpx[http2] 0.28.1` — HTTP client for KEV/OSV/EPSS API calls
+- `jsonschema 4.26.0` — Registry schema validation
+- `portalocker 3.2.0` — Cross-platform file locking for atomic writes
 - `osv-scanner` (system binary) — The actual vulnerability scanner invoked via subprocess
 - `trivy`, `zizmor` (optional) — Additional S3-allowlisted scanners
 
 ### Dev
-- `pytest 9.0.3` + `pytest-cov` + `pytest-mock`
+- `pytest 9.1.1` + `pytest-cov` + `pytest-mock`
 
 ### Phase 3a additions (v0.3.0)
 - `scripts/lib/epss_client.py` — EPSS CSV download + 24h TTL cache
