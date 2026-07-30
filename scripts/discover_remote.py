@@ -15,7 +15,7 @@ from typing import Iterator
 
 from scripts.discover import MANIFEST_ECOSYSTEM, DEFAULT_EXCLUDES
 from scripts.lib.remote_types import RemoteManifest
-from scripts.lib.ssh_runner import SSHRunner, SSHUnreachableError
+from scripts.lib.ssh_runner import SSHRunner, SSHUnreachableError, SSHArgumentError
 from scripts.lib.logger import get_logger
 
 log = get_logger(__name__)
@@ -148,7 +148,10 @@ def discover_remote_safely(
     """
     try:
         yield from discover_remote_manifests(target, runner)
-    except SSHUnreachableError as e:
+    except (SSHUnreachableError, SSHArgumentError) as e:
+        # SSHArgumentError = a control char in a discover_path root — a
+        # target-level config issue, so one SCAN_ERROR for the target (same
+        # handling as unreachable), not an abort of the whole scan.
         yield {
             "target": target["name"],
             "host": target.get("host", ""),

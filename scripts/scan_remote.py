@@ -7,7 +7,7 @@ S4 load-bearing promise (see SAFETY_INVARIANTS.md).
 import json
 
 from scripts.lib.remote_types import RemoteManifest
-from scripts.lib.ssh_runner import SSHRunner, SSHUnreachableError
+from scripts.lib.ssh_runner import SSHRunner, SSHUnreachableError, SSHArgumentError
 from scripts.lib.types import Finding, new_finding
 from scripts.scan_local import parse_osv_output, ScannerError, _findings_from_result
 from scripts.lib.logger import get_logger
@@ -59,6 +59,12 @@ def scan_remote_manifest(
     except SSHUnreachableError as e:
         log.warning("remote scan %s unreachable: %s", manifest.get("target"), e)
         return [_scan_error_finding(manifest, f"ssh unreachable: {e}")]
+    except SSHArgumentError as e:
+        # A control char (e.g. tab) in this manifest's path — reject the
+        # manifest, not the whole scan. S3 defense-in-depth stays, but one
+        # bad path becomes one SCAN_ERROR instead of aborting.
+        log.warning("remote scan %s rejected path: %s", manifest.get("target"), e)
+        return [_scan_error_finding(manifest, f"ssh argument rejected: {e}")]
 
     try:
         return parse_osv_output(
@@ -135,7 +141,9 @@ def scan_remote_manifests(
         return findings + [
             _scan_error_finding(m, f"ssh unreachable: {e}") for m in scannable
         ]
-    except ScannerError as e:
+    except (ScannerError, SSHArgumentError) as e:
+        # SSHArgumentError = a control char in one batched path; fall back to
+        # per-manifest so the bad path becomes a single SCAN_ERROR, not an abort.
         log.warning("batch scan unusable (%s); retrying per-manifest", e)
         for m in scannable:
             findings.extend(scan_remote_manifest(m, runner, scanner_path=scanner_path))
