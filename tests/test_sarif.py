@@ -49,3 +49,18 @@ def test_sarif_includes_partial_fingerprint():
     result = sarif["runs"][0]["results"][0]
     assert "partialFingerprints" in result
     assert "primaryLocationLineHash" in result["partialFingerprints"]
+
+
+def test_sarif_driver_version_is_dynamic_and_url_correct():
+    """H2/H3: driver.version must reflect the installed pkgfence version (not
+    hardcoded 0.1.0) and informationUri must point at the real repo."""
+    from importlib.metadata import version
+    findings = [new_finding(
+        purl="pkg:npm/foo@1.0", vuln_id="X", severity="low",
+        manifest_path="/f", target="t",
+    )]
+    sarif = findings_to_sarif(findings, scanner_version="t")
+    driver = sarif["runs"][0]["tool"]["driver"]
+    assert driver["version"] == version("pkgfence")
+    assert driver["version"] != "0.1.0"
+    assert driver["informationUri"] == "https://github.com/jimstratus/pkgfence"

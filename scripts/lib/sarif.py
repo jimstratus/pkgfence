@@ -11,11 +11,20 @@ Emits partialFingerprints.primaryLocationLineHash for GitHub Code
 Scanning dedup (sha256 of manifest_path + vuln_id).
 """
 import hashlib
+from importlib.metadata import version as _md_version
 from typing import Any
 from scripts.lib.types import Finding
 
 
 _SCHEMA_URL = "https://schemastore.azurewebsites.net/schemas/json/sarif-schema-2.1.0.json"
+_REPO_URL = "https://github.com/jimstratus/pkgfence"
+
+
+def _pkgfence_version() -> str:
+    try:
+        return _md_version("pkgfence")
+    except Exception:  # noqa: BLE001
+        return "unknown"
 
 
 def _severity_to_level(severity: str) -> str:
@@ -87,8 +96,8 @@ def findings_to_sarif(findings: list[Finding], scanner_version: str) -> dict[str
             "tool": {
                 "driver": {
                     "name": "pkgfence",
-                    "version": "0.1.0",
-                    "informationUri": "https://github.com/ryanm/pkgfence",
+                    "version": _pkgfence_version(),
+                    "informationUri": _REPO_URL,
                     "rules": list(rules.values()),
                 },
             },

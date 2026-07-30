@@ -44,7 +44,7 @@ class SSHRunner:
 
     # Control characters that can never appear in a legitimate remote argv
     # element. Newlines would also corrupt line-oriented output parsing.
-    _FORBIDDEN_ARG_CHARS = ("\x00", "\n", "\r")
+    _FORBIDDEN_ARG_CHARS = ("\x00", "\n", "\r", "\t")
 
     def _check_allowlist(self, command: List[str]) -> None:
         """Raise ValueError if command is empty, its basename is not in the

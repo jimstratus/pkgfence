@@ -93,7 +93,7 @@ def test_ssh_rejects_control_characters_in_any_argument():
     """S3 defense in depth: NUL/CR/LF can never be legitimate in a remote
     argv element and would corrupt line-oriented output parsing."""
     runner = SSHRunner(host="example.invalid", user="nobody")
-    for bad in ["/var/www/a\nb", "/var/www/a\rb", "/var/www/a\x00b"]:
+    for bad in ["/var/www/a\nb", "/var/www/a\rb", "/var/www/a\x00b", "/var/www/a\tb"]:
         with pytest.raises(ValueError, match="control character"):
             runner.run(["ls", bad])
 
