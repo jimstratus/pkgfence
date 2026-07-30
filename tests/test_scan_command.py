@@ -69,12 +69,20 @@ def test_run_scan_end_to_end_with_npm_fixture(tmp_path, tmp_state):
                 mock_epss.refresh = MagicMock()
                 mock_epss.lookup.return_value = None
                 mock_epss_cls.return_value = mock_epss
+                with patch("scripts.scan_command.GHSAHTTPClient") as mock_ghsa_cls:
+                    mock_ghsa = MagicMock()
+                    mock_ghsa.is_degraded = False
+                    mock_ghsa.is_stale = False
+                    mock_ghsa.advisories_fetched = 0
+                    mock_ghsa.advisories_cached = 0
+                    mock_ghsa.fetch.return_value = None
+                    mock_ghsa_cls.return_value = mock_ghsa
 
-                exit_code, report_path = run_scan(
-                    registry_path=reg,
-                    state_dir=tmp_state,
-                    fail_on="high",
-                )
+                    exit_code, report_path = run_scan(
+                        registry_path=reg,
+                        state_dir=tmp_state,
+                        fail_on="high",
+                    )
 
     assert exit_code == 1
     assert report_path.exists()
@@ -107,7 +115,15 @@ def test_run_scan_clean_exit_zero(tmp_path, tmp_state):
                 mock_epss.refresh = MagicMock()
                 mock_epss.lookup.return_value = None
                 mock_epss_cls.return_value = mock_epss
-                exit_code, report_path = run_scan(registry_path=reg, state_dir=tmp_state)
+                with patch("scripts.scan_command.GHSAHTTPClient") as mock_ghsa_cls:
+                    mock_ghsa = MagicMock()
+                    mock_ghsa.is_degraded = False
+                    mock_ghsa.is_stale = False
+                    mock_ghsa.advisories_fetched = 0
+                    mock_ghsa.advisories_cached = 0
+                    mock_ghsa.fetch.return_value = None
+                    mock_ghsa_cls.return_value = mock_ghsa
+                    exit_code, report_path = run_scan(registry_path=reg, state_dir=tmp_state)
 
     assert exit_code == 0
     assert report_path.exists()
@@ -156,11 +172,19 @@ def test_exit_code_1_when_high_finding_with_default_fail_on_critical(tmp_path, t
                 mock_epss.refresh = MagicMock()
                 mock_epss.lookup.return_value = None
                 mock_epss_cls.return_value = mock_epss
+                with patch("scripts.scan_command.GHSAHTTPClient") as mock_ghsa_cls:
+                    mock_ghsa = MagicMock()
+                    mock_ghsa.is_degraded = False
+                    mock_ghsa.is_stale = False
+                    mock_ghsa.advisories_fetched = 0
+                    mock_ghsa.advisories_cached = 0
+                    mock_ghsa.fetch.return_value = None
+                    mock_ghsa_cls.return_value = mock_ghsa
 
-                # fail_on=critical -> high finding does not trigger exit 1
-                exit0, _ = run_scan(registry_path=reg, state_dir=tmp_state, fail_on="critical")
-                # fail_on=high -> high finding does trigger exit 1
-                exit1, _ = run_scan(registry_path=reg, state_dir=tmp_state, fail_on="high")
+                    # fail_on=critical -> high finding does not trigger exit 1
+                    exit0, _ = run_scan(registry_path=reg, state_dir=tmp_state, fail_on="critical")
+                    # fail_on=high -> high finding does trigger exit 1
+                    exit1, _ = run_scan(registry_path=reg, state_dir=tmp_state, fail_on="high")
 
     assert exit0 == 0
     assert exit1 == 1
@@ -199,14 +223,22 @@ def test_run_scan_with_adhoc_path(tmp_path, tmp_state):
                 mock_epss.refresh = MagicMock()
                 mock_epss.lookup.return_value = None
                 mock_epss_cls.return_value = mock_epss
+                with patch("scripts.scan_command.GHSAHTTPClient") as mock_ghsa_cls:
+                    mock_ghsa = MagicMock()
+                    mock_ghsa.is_degraded = False
+                    mock_ghsa.is_stale = False
+                    mock_ghsa.advisories_fetched = 0
+                    mock_ghsa.advisories_cached = 0
+                    mock_ghsa.fetch.return_value = None
+                    mock_ghsa_cls.return_value = mock_ghsa
 
-                # No registry path passed; adhoc_path provided
-                exit_code, report_path = run_scan(
-                    registry_path=Path("does-not-exist.yaml"),
-                    state_dir=tmp_state,
-                    adhoc_path=workspace,
-                    fail_on="high",
-                )
+                    # No registry path passed; adhoc_path provided
+                    exit_code, report_path = run_scan(
+                        registry_path=Path("does-not-exist.yaml"),
+                        state_dir=tmp_state,
+                        adhoc_path=workspace,
+                        fail_on="high",
+                    )
 
     assert exit_code == 1
     assert report_path.exists()
@@ -218,9 +250,15 @@ def test_degraded_enricher_adds_exactly_one_message(tmp_state, tmp_registry):
     from scripts.scan_command import run_scan
 
     with patch("scripts.scan_command.KEVClient") as kev_cls, \
-         patch("scripts.scan_command.EPSSClient") as epss_cls:
+         patch("scripts.scan_command.EPSSClient") as epss_cls, \
+         patch("scripts.scan_command.GHSAHTTPClient") as ghsa_cls:
         kev_cls.return_value.is_degraded = True
         kev_cls.return_value.is_stale = False
+        ghsa_cls.return_value.is_degraded = False
+        ghsa_cls.return_value.is_stale = False
+        ghsa_cls.return_value.advisories_fetched = 0
+        ghsa_cls.return_value.advisories_cached = 0
+        ghsa_cls.return_value.fetch.return_value = None
         epss_cls.return_value.is_degraded = True
         epss_cls.return_value.is_stale = False
         epss_cls.return_value.feed_timestamp = None
@@ -238,9 +276,15 @@ def test_stale_enricher_emits_stale_message(tmp_state, tmp_registry):
     from scripts.scan_command import run_scan
 
     with patch("scripts.scan_command.KEVClient") as kev_cls, \
-         patch("scripts.scan_command.EPSSClient") as epss_cls:
+         patch("scripts.scan_command.EPSSClient") as epss_cls, \
+         patch("scripts.scan_command.GHSAHTTPClient") as ghsa_cls:
         kev_cls.return_value.is_degraded = False
         kev_cls.return_value.is_stale = True
+        ghsa_cls.return_value.is_degraded = False
+        ghsa_cls.return_value.is_stale = False
+        ghsa_cls.return_value.advisories_fetched = 0
+        ghsa_cls.return_value.advisories_cached = 0
+        ghsa_cls.return_value.fetch.return_value = None
         epss_cls.return_value.is_degraded = False
         epss_cls.return_value.is_stale = False
         epss_cls.return_value.feed_timestamp = None

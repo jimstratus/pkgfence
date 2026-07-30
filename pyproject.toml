@@ -1,6 +1,6 @@
 [project]
 name = "pkgfence"
-version = "0.3.0"
+version = "0.5.0"
 description = "Multi-codebase dependency and supply-chain vulnerability scanner — Claude Code skill"
 license = {text = "MIT"}
 requires-python = ">=3.11"
@@ -21,7 +21,9 @@ dev = [
 
 [project.scripts]
 pkgfence = "scripts.scan_command:main"
+pkgfence-lookup = "scripts.lookup_command:main"
 pkgfence-notify = "scripts.notify:main"
+pkgfence-watch = "scripts.watch_daemon:main"
 
 [build-system]
 requires = ["setuptools>=68"]

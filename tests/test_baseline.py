@@ -71,3 +71,35 @@ def test_diff_findings_dedup_key_includes_manifest_path():
     tagged = diff_findings(current, baseline)
     statuses = sorted(f["diff_status"] for f in tagged)
     assert statuses == ["EXISTING", "NEW"]
+
+
+def test_diff_alarms_removed_manifest_zero_to_zero():
+    """A manifest removed between two clean (0-finding) scans must alarm.
+
+    Regression: run_scan used `len(prior_findings) if prior_findings else None`,
+    which turned an empty list into None, so the common 0→0 removal case
+    skipped the alarm entirely. With prior_finding_count=0 preserved, the
+    removal branch must fire.
+    """
+    from scripts.lib.baseline import diff_alarms
+    alarms = diff_alarms(
+        current_hashes={"/kept/package-lock.json": "aaa111"},
+        prior_hashes={"/kept/package-lock.json": "aaa111",
+                      "/gone/package-lock.json": "bbb222"},
+        current_finding_count=0,
+        prior_finding_count=0,
+    )
+    assert any("removed" in a.lower() for a in alarms), alarms
+
+
+def test_diff_alarms_removed_manifest_with_none_count_skipped():
+    """No prior baseline (None count) → no removal alarm (can't compare)."""
+    from scripts.lib.baseline import diff_alarms
+    alarms = diff_alarms(
+        current_hashes={"/kept/package-lock.json": "aaa111"},
+        prior_hashes={"/kept/package-lock.json": "aaa111",
+                      "/gone/package-lock.json": "bbb222"},
+        current_finding_count=0,
+        prior_finding_count=None,
+    )
+    assert alarms == []

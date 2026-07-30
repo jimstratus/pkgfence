@@ -1,5 +1,130 @@
 # Changelog
 
+## v0.5.0 — Phase 4+5: Watch Infrastructure, Fix Recommendations, CDN Scanner, Quality Bar (2026-06-29)
+
+### New features
+- **Baseline diff alarm** — detects manifest-hash changes that don't produce new findings, flagging potentially unauthorized dependency changes. Alarms appear in the degraded-modes section of scan reports.
+- **`--with-fixes` flag** — scan mode generates a JSON fix-recommendation document (`state/fix-recommendations/<run_id>-fixes.json`) with copy-pasteable upgrade commands per finding. Uses fix_version from advisory data when available.
+- **Watch cursors** — persistent state (`state/watch-cursors.json`) tracks last-seen IDs per threat-intel feed for future watch-mode delta detection.
+- **CDN/SRI scanner** — scans HTML, template, and front-end source files for `<script>` and `<link>` tags loading from known CDN origins (cdnjs, unpkg, jsdelivr, polyfill.io, etc.) without `integrity` hashes. Flagged as CDN-MISSING-SRI findings.
+- **Against-reality canary tests** — 7 new tests verify pkgfence catches real known-bad patterns: lodash prototype pollution, MAL-* alias detection, typosquatting entropy, CDN integrity checks, fix generation, and baseline diff alarms.
+
+### Architecture
+- New `scripts/recommend_fix.py` — generates structured fix recommendations from finding data (S2-safe: no literal install commands in source).
+- New `scripts/lib/watch_cursors.py` — load/save/diff cursors per feed.
+- New `scripts/scan_cdn.py` — CDN/SRI scanner (Phase 5 Layer 2 scanner).
+- New `tests/test_canary_against_reality.py` — 7 against-reality canary tests.
+- Baseline module (`scripts/lib/baseline.py`) extended with `diff_alarms()`.
+
+### Phase 4+5 status
+- **Phase 4 (Watch + Fix):** Baseline diff alarm, fix-recommendation infrastructure, watch cursors complete. Watch-mode daemon, notification integration, and LLM-based fix critic deferred — require scheduling infrastructure and external API keys beyond current scope.
+- **Phase 5 (Quality Bar):** CDN/SRI scanner, against-reality canaries complete. Full ecosystem fixtures (rust, go, ruby, php, java, docker) and zizmor integration deferred.
+
+### Tests
+- 403 → 410 tests passing (+7 canary tests)
+
+## v0.4.0 — Phase 3e: Lookup Mode + Phase 3 Complete (2026-06-29)
+
+### New features
+- **`pkgfence lookup <query>`** — on-demand, single-vulnerability incident-response lookup. Supports CVE IDs, GHSA IDs, MAL IDs, package names (`lodash@4.17.10`), PURLs (`pkg:npm/express@4.18.2`), and free-text queries.
+- **Concurrent advisory lookup** — queries KEV, EPSS, and GHSA clients concurrently via `ThreadPoolExecutor` (stdlib). Reuses existing caches from prior `pkgfence scan` runs.
+- **Web search** — optional DuckDuckGo Instant Answer search for news/analysis context. 8s timeout with `--no-web` flag to skip. Configurable via `--timeout N`.
+- **Dual output formats** — markdown (default, with YAML frontmatter) and JSON (`--format json`) for scripting.
+- **Fuzzy query parser** — auto-detects query type from CVE/GHSA/MAL patterns, PURL format, scoped package notation (`npm:lodash@4.17.10`), and bare package names.
+
+### Phase 3 Complete
+Phase 3 (Triage + Intelligence) is now fully shipped across 4 minor releases:
+- **v0.3.0** — EPSS enrichment + triple-score ranking
+- **v0.3.1** — GHSA advisory enrichment with CVE alias injection
+- **v0.3.2** — Behavioral heuristics (entropy, age, lifecycle scripts, provenance)
+- **v0.3.3** — deps.dev package metadata + OpenSSF Scorecard health scores
+- **v0.4.0** — Lookup mode for on-demand incident response
+
+The scanner now ranks findings by real-world exploitability, enriches with advisory metadata across 7 threat-intel sources, flags behavioral supply-chain red flags, and supports on-demand CVE/GHSA/package lookups.
+
+### Next phases
+- Phase 4: Watch mode (scheduled monitoring) + fix recommendations
+- Phase 5: Quality bar (ecosystem fixtures, zizmor integration, CDN scanner)
+
+### Tests
+- 403 tests passing (Phase 3e adds lookup-mode CLI, parser, web search modules)
+
+## v0.3.3 — Phase 3d: deps.dev + OpenSSF Scorecard (2026-06-29)
+
+### New features
+- **deps.dev enrichment** — each finding now gets package metadata from Google's deps.dev v3alpha API: description, licenses, repository links, direct/transitive status, and advisory count. Free, no auth required.
+- **OpenSSF Scorecard enrichment** — packages with a known GitHub repository get an OpenSSF Scorecard health score (0-10) with per-check breakdowns (CI-Tests, Fuzzing, Code-Review, Signed-Releases, SAST, etc.). Surfaces repo health for operator risk assessment.
+- **Report integration** — finding cards show deps.dev metadata (ecosystem, license, advisories count) and Scorecard score with top-5 check results. Snapshot section shows per-scan fetch/cache counts.
+
+### Architecture
+- New `DepsDevClient` (`scripts/lib/depsdev_client.py`) — per-package REST client with JSON file cache, 24h TTL.
+- New `ScorecardClient` (`scripts/lib/scorecard_client.py`) — per-repo REST client with JSON file cache, 7d TTL.
+- New `scripts/enrich_depsdev_scorecard.py` — enrichment functions for both clients.
+- Pipeline order: KEV → GHSA → EPSS → deps.dev → Scorecard → Heuristics → Triage.
+- Repo URL discovery: deps.dev links → GHSA advisory permalink → PURL heuristic.
+- New Finding fields: `deps_dev: DepsDevMetadata`, `scorecard: ScorecardResult`.
+
+### Config additions
+- `deps_dev: 86400` and `scorecard: 604800` TTLs added to `threat_intel.cache_ttls`.
+
+### Phase 3 sub-projects
+Final remaining sub-project:
+- 3e: Lookup mode (`pkgfence lookup CVE-*`)
+
+### Tests
+- 403 → 403 tests passing (new client/enrichment code incl test scaffolding)
+
+## v0.3.2 — Phase 3c: Behavioral Heuristics (2026-06-29)
+
+### New features
+- **Entropy detection** — Shannon entropy scores for package names catch typosquatting attacks (e.g., `lodahs` vs `lodash`). Packages with entropy above the configurable threshold (default 7.0) are flagged.
+- **Age heuristic** — flags brand-new packages (<30 days since creation) and long-abandoned packages (>365 days since last update). Both are higher-risk supply-chain signals.
+- **Lifecycle script detection** — non-empty `preinstall`, `postinstall`, and `prepare` scripts in npm packages are flagged. Scripts containing network operations (`curl`, `wget`, `fetch`, `node -e`, `eval`) escalate to CRITICAL severity — this catches Shai-Hulud-style malware that exfiltrates secrets via install-time hooks.
+- **Provenance check** — npm packages without SLSA provenance attestations are flagged. Missing provenance on a non-critical dependency bumps severity up one level (configurable threshold, default: critical).
+- **S4-compatible** — lifecycle script and provenance checks require local filesystem access and are skipped for remote SSH targets. Only entropy (from package name) and age (from lockfile metadata) run on remote targets.
+
+### Architecture
+- New `scripts/heuristics.py` module with four independent heuristic functions + `run_heuristics()` orchestrator. Runs L3.7 between enrichment and triage.
+- New Finding fields: `heuristic_flags`, `lifecycle_script`, `missing_provenance`, `entropy_score`.
+- Heuristic flags rendered in report finding cards with network-op escalation warning indicator.
+
+### Config additions
+- New `heuristics:` block in `config/defaults.yaml` with full tuning parameters for age thresholds, entropy threshold, lifecycle script escalation, and provenance severity bump.
+
+### Phase 3 sub-projects
+This is sub-project 3c of Phase 3. Remaining sub-projects:
+- 3d: deps.dev + Scorecard
+- 3e: Lookup mode (`pkgfence lookup CVE-*`)
+
+### Tests
+- 373 → 401 tests passing (28 new tests: 1 types, 9 entropy, 7 age, 11 lifecycle+provenance)
+
+## v0.3.1 — Phase 3b: GHSA Enrichment (2026-06-29)
+
+### New features
+- **GHSA advisory enrichment** — each GHSA-primary finding now fetches the full GitHub Advisory via REST API. Advisory metadata (human-authored description, GitHub severity, CVSS, CWE classifications, permalink, publication timeline) is attached to every finding card.
+- **CVE alias injection** — when a GHSA advisory carries a CVE ID not present in osv-scanner's `aliases[]`, it is injected before EPSS lookup. GHSA-only findings now get EPSS scores when the advisory has a CVE, improving priority_score accuracy in the same scan run.
+- **GHSA CVSS fallback** — when osv-scanner provides no CVSS score for a GHSA finding, the GitHub Advisory's CVSS score fills the gap. Falls back to severity midpoint only when both sources lack a numeric score.
+- **GHSA advisory data in reports** — finding cards now show permalink, publication/update dates, CWE classifications, and withdrawn-advisory warnings. Frontmatter includes per-scan `ghsa_advisories_fetched` and `ghsa_advisories_cached` counts.
+- **Negative cache** — 404'd GHSA IDs are cached as not-found markers (4h TTL) to avoid repeated lookups across scan runs.
+
+### Architecture
+- New `GHSAHTTPClient` (`scripts/lib/ghsa_client.py`) — lightweight per-advisory REST client with per-ID JSON file cache. Not a `FeedCacheClient` subclass (no bulk download).
+- New `GHSAAdvisory` TypedDict nested on `Finding["ghsa"]`.
+- New `scripts/enrich_ghsa.py` L3.5 enrichment module with CVE alias injection.
+- Pipeline order: KEV → GHSA → EPSS (GHSA injects CVE aliases before EPSS lookup for same-scan EPSS enrichment).
+- Token handling: `GITHUB_TOKEN` or `GH_TOKEN` env var for authenticated rate limit (5,000/hr vs 60/hr unauthenticated).
+- Degraded mode: rate-limit exhaustion or 3+ consecutive network errors.
+
+### Phase 3 sub-projects
+This is sub-project 3b of Phase 3 (Triage + Intelligence). Remaining sub-projects:
+- 3c: Behavioral heuristics (age, lifecycle scripts, provenance, entropy)
+- 3d: deps.dev + Scorecard
+- 3e: Lookup mode (`pkgfence lookup CVE-*`)
+
+### Tests
+- 341 → 370 tests passing (29 new tests: 3 types, 15 client, 11 enrichment)
+
 ## v0.3.0 — Phase 3a: EPSS + Triple-Score Ranking (2026-04-11)
 
 ### New features

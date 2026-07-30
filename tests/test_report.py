@@ -414,3 +414,84 @@ def test_priority_line_distinguishes_epss_zero_from_absent():
     zero = _render_finding_card(
         dict(base, epss_score=0.0, epss_percentile=0.01))
     assert "EPSS=0.00 (p1)" in zero
+
+
+def test_report_shows_ghsa_info():
+    f = new_finding(purl="pkg:npm/x@1", vuln_id="GHSA-abcd",
+                    severity="high", manifest_path="/a", target="local")
+    f["cvss_score"] = 8.1
+    f["priority_score"] = 0.72
+    f["description"] = "Full description from enrichment"
+    f["ghsa"] = {
+        "ghsa_id": "GHSA-abcd",
+        "cve_id": "CVE-2024-1",
+        "summary": "Test advisory",
+        "description": "Full description",
+        "severity": "high",
+        "cvss_score": 8.1,
+        "cwes": ["CWE-1321"],
+        "permalink": "https://github.com/advisories/GHSA-abcd",
+        "published_at": "2024-01-01T00:00:00Z",
+        "updated_at": "2024-06-01T00:00:00Z",
+    }
+    card = _render_finding_card(f)
+    assert "github.com/advisories/GHSA-abcd" in card
+    assert "CWE-1321" in card
+    assert "2024-01-01" in card
+
+
+def test_report_shows_withdrawn_warning():
+    f = new_finding(purl="pkg:npm/x@1", vuln_id="GHSA-abcd",
+                    severity="high", manifest_path="/a", target="local")
+    f["cvss_score"] = 8.1
+    f["priority_score"] = 0.60
+    f["description"] = "Retracted advisory description"
+    f["ghsa"] = {
+        "ghsa_id": "GHSA-abcd",
+        "summary": "Retracted advisory",
+        "description": "Full description",
+        "severity": "high",
+        "permalink": "https://github.com/advisories/GHSA-abcd",
+        "published_at": "2024-01-01T00:00:00Z",
+        "updated_at": "2024-06-01T00:00:00Z",
+        "withdrawn_at": "2025-03-01T00:00:00Z",
+    }
+    card = _render_finding_card(f)
+    assert "WITHDRAWN" in card
+
+
+def test_ghsa_counts_in_snapshot():
+    snapshot = {
+        "scanner_version": "2.3.3",
+        "kev_timestamp": "2026-04-06T12:00:00Z",
+        "ghsa_advisories_fetched": 12,
+        "ghsa_advisories_cached": 3,
+        "targets_scanned": 1,
+        "packages_checked": 100,
+    }
+    report = render_markdown_report([], snapshot, degraded_modes=[])
+    assert "GHSA advisories fetched: 12" in report
+    assert "3 cached" in report
+
+
+def test_report_shows_heuristic_flags():
+    f = new_finding(purl="pkg:npm/x@1", vuln_id="GHSA-abcd",
+                    severity="high", manifest_path="/a", target="local")
+    f["cvss_score"] = 8.1
+    f["priority_score"] = 0.60
+    f["heuristic_flags"] = ["age:abandoned", "lifecycle:postinstall"]
+    card = _render_finding_card(f)
+    assert "Heuristics" in card
+    assert "age:abandoned" in card
+    assert "lifecycle:postinstall" in card
+
+
+def test_report_bolds_network_op_heuristic():
+    f = new_finding(purl="pkg:npm/x@1", vuln_id="GHSA-abcd",
+                    severity="critical", manifest_path="/a", target="local")
+    f["cvss_score"] = 9.8
+    f["priority_score"] = 0.92
+    f["heuristic_flags"] = ["lifecycle:postinstall", "lifecycle:network-op"]
+    card = _render_finding_card(f)
+    assert "\u26a0\ufe0f Heuristics" in card
+    assert "lifecycle:network-op" in card
