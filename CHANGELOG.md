@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased — dependency hygiene
+
+### Dependencies
+- All 8 pinned deps bumped to latest; 3 major bumps verified API-compatible against the test suite:
+  - `ruamel.yaml` 0.18.6 → 0.19.1 (round-trip `YAML(typ="rt"/"safe")` + `YAMLError` unchanged; `ruamel-yaml-clib` no longer required)
+  - `portalocker` 2.10.1 → 3.2.0 (`portalocker.Lock(path, timeout=...)` API retained)
+  - `pytest-cov` 5.0.0 → 7.1.0
+- Minors: `httpx[http2]` 0.27.2 → 0.28.1, `jsonschema` 4.23.0 → 4.26.0, `cvss` 3.4 → 3.6, `pytest` 9.0.3 → 9.1.1, `pytest-mock` 3.14.0 → 3.15.1.
+- `requirements.txt` regenerated via pip-compile; this also restored `cvss` to the lockfile (it was pinned in pyproject but missing from the stale lockfile). 439 tests pass, safety invariants S1–S4 green.
+
 ## v0.5.0 — Phase 4+5: Watch Infrastructure, Fix Recommendations, CDN Scanner, Quality Bar (2026-06-29)
 
 ### New features
