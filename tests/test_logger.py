@@ -19,8 +19,6 @@ def test_module_loggers_route_via_scripts_ancestor():
     """Hierarchy fix: handlers live on the 'scripts' ancestor so scripts.*
     module loggers (e.g. scripts.eol_detect) propagate to them — not on a
     'pkgfence' sibling, which module loggers would never reach."""
-    import logging
-    from scripts.lib.logger import get_logger
     get_logger("scripts.eol_detect")  # ensures _configure_once has run
     scripts_logger = logging.getLogger("scripts")
     pkgfence_logger = logging.getLogger("pkgfence")
