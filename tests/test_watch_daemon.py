@@ -4,6 +4,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from scripts.watch_daemon import (
+    DEFAULT_STATE_DIR,
     _collect_feed_ids,
     _log_new_entries,
     _watch_kev,
@@ -116,13 +117,13 @@ def test_run_watch_once_completes_single_cycle(tmp_path):
     sleep.assert_not_called()
 
 
-def test_main_passes_path_state_default(tmp_path):
-    """--state default must be a Path so Path division works on Python 3.11."""
+def test_main_passes_path_state_default():
+    """Default --state (no CLI override) must already be a Path."""
     with patch("scripts.watch_daemon.run_watch") as run:
-        with patch("sys.argv", ["pkgfence-watch", "--once", "--state", str(tmp_path)]):
+        with patch("sys.argv", ["pkgfence-watch", "--once"]):
             main()
     run.assert_called_once()
     state_arg = run.call_args.args[0]
     assert isinstance(state_arg, Path)
-    assert state_arg == tmp_path
+    assert state_arg == DEFAULT_STATE_DIR
     assert run.call_args.kwargs["once"] is True
