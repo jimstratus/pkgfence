@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased — watch/lookup/enrich coverage + Scorecard SOURCE_REPO fix
+
+### Fixed
+- **Scorecard enrichment never fired for deps.dev packages** — `_find_repo_url` only accepted labels `repo`/`source`/`repository`, but deps.dev emits `SOURCE_REPO`. Label allowlist now includes `source_repo` / `source_code`.
+- **Scorecard GitHub URL parsing** — `git+https://github.com/owner/repo.git` (deps.dev `SOURCE_REPO` form) now strips the `git+` prefix and trailing `.git` before owner/repo extraction.
+- **`pkgfence-watch --state` default** — default is now an explicit `Path` (`DEFAULT_STATE_DIR`) rather than a string, documenting the argparse contract for `run_watch` (argparse does convert string defaults via `type=`, so this is an explicit-type cleanup rather than a Python 3.11 runtime bug fix).
+- **Watch feed-ID collection** — `_collect_feed_ids` returns a copy of `_known_set` so callers cannot mutate the client’s live set.
+- **Watch log ordering** — `_log_new_entries` sorts IDs with `_id_sort_key` (numeric) for stable JSONL.
+
+### Tests / CI
+- New unit tests: `test_watch_daemon.py`, `test_enrich_depsdev_scorecard.py`, `test_lookup_command.py`, `test_lookup_report.py`, `test_lookup_websearch.py`; two extra `test_watch_cursors.py` edge cases.
+- Suite: 448 → __TEST_COUNT__ tests (on top of main after remote exit-code / yarn-pnpm work).
+- Local CI stand-in: `scripts/ci_local.sh` runs full pytest + S1–S4 safety step (mirrors intended GitHub Actions steps including S4).
+- CI workflow matrix (Python 3.11/3.12/3.13 + S4 in safety step): skipped — OAuth token lacks `workflow` scope (cannot push under `.github/workflows/`). Use `scripts/ci_local.sh` until a token with `workflow` scope can apply the matrix.
+
+### Docs
+- `DEVELOPMENT.md`: document `scripts/ci_local.sh` when the token lacks `workflow` scope; refresh suite-size references.
+- `tests/AGENTS.md` (+ other agent/contributor docs): refresh suite-size references and list the new test modules.
+
 ## Unreleased — CDN/SRI correctness, lookup parser, CI matrix
 
 ### Fixed
