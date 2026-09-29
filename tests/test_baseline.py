@@ -103,3 +103,11 @@ def test_diff_alarms_removed_manifest_with_none_count_skipped():
         prior_finding_count=None,
     )
     assert alarms == []
+
+
+def test_load_baseline_corrupt_json_returns_none(tmp_state):
+    """Truncated / corrupt baseline must not crash the scan — treat as absent."""
+    path = tmp_state / "baselines" / "default.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("{not valid json", encoding="utf-8")
+    assert load_baseline(path) is None

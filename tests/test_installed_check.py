@@ -170,3 +170,40 @@ def test_unified_stage_skips_status_records():
                            remote_runners={"bespin": runner})
     runner.run_with_rc.assert_not_called()
     assert "installed" not in err
+
+
+def test_yarn_lock_installed_true(tmp_path):
+    """yarn.lock shares node_modules layout with package-lock.json."""
+    lockfile = tmp_path / "yarn.lock"
+    lockfile.touch()
+    (tmp_path / "node_modules" / "lodash").mkdir(parents=True)
+    f = new_finding(purl="pkg:npm/lodash@4.17.21", vuln_id="GHSA-1",
+                    severity="high", manifest_path=str(lockfile), target="local")
+    result = check_installed_local(f)
+    assert result["installed"] is True
+
+
+def test_pnpm_lock_installed_false_demotes_via_path(tmp_path):
+    """pnpm-lock.yaml findings must get installed=False when node_modules missing."""
+    lockfile = tmp_path / "pnpm-lock.yaml"
+    lockfile.touch()
+    f = new_finding(purl="pkg:npm/lodash@4.17.21", vuln_id="GHSA-1",
+                    severity="critical", manifest_path=str(lockfile), target="local")
+    result = check_installed_local(f)
+    assert result["installed"] is False
+    demoted = apply_installed_demotion(result)
+    assert demoted["severity"] == "info"
+    assert demoted["original_severity"] == "critical"
+
+
+def test_remote_batch_yarn_lock_queried(mocker):
+    """Remote yarn.lock findings must be included in the ls -d batch."""
+    mock_runner = mocker.MagicMock(spec=SSHRunner)
+    mock_runner.run_with_rc.return_value = ("/srv/app/node_modules/lodash\n", 0)
+    f = new_finding(purl="pkg:npm/lodash@4.17.21", vuln_id="GHSA-1",
+                    severity="high", manifest_path="/srv/app/yarn.lock", target="mars")
+    check_installed_remote_batch([f], mock_runner)
+    mock_runner.run_with_rc.assert_called_once()
+    cmd = mock_runner.run_with_rc.call_args.args[0]
+    assert "/srv/app/node_modules/lodash" in cmd
+    assert f["installed"] is True

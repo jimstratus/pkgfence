@@ -12,6 +12,10 @@ import tempfile
 from pathlib import Path
 from typing import Any, Optional
 
+from scripts.lib.logger import get_logger
+
+log = get_logger(__name__)
+
 
 def save_baseline(path: Path, baseline: dict[str, Any]) -> None:
     """Atomic write: temp file in the same dir, then os.replace.
@@ -35,10 +39,19 @@ def save_baseline(path: Path, baseline: dict[str, Any]) -> None:
 
 
 def load_baseline(path: Path) -> Optional[dict[str, Any]]:
+    """Load a baseline JSON file. Returns None if missing or unreadable.
+
+    Corrupt / truncated JSON must not crash the scan or notify path — treat
+    as no baseline (every finding will be tagged NEW on the next diff).
+    """
     path = Path(path)
     if not path.exists():
         return None
-    return json.loads(path.read_text(encoding="utf-8"))
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError) as e:
+        log.warning("baseline at %s unreadable (%s); treating as absent", path, e)
+        return None
 
 
 def _finding_identity(f: dict) -> tuple[str, str, str]:

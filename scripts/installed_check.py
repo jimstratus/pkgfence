@@ -5,7 +5,8 @@ on disk. This reduces false-positive CRITICAL fatigue — a finding for a
 package that isn't installed on disk is lower-risk.
 
 Supported ecosystems:
-    npm      — checks node_modules/<name>/ adjacent to package-lock.json
+    npm      — checks node_modules/<name>/ adjacent to package-lock.json,
+               yarn.lock, or pnpm-lock.yaml (same install layout)
     composer — checks vendor/<vendor>/<package>/ adjacent to composer.lock
     pip      — skipped (virtualenv ambiguity makes this unreliable)
 """
@@ -14,6 +15,15 @@ from urllib.parse import unquote
 
 from scripts.lib.ssh_runner import SSHRunner, SSHUnreachableError
 from scripts.lib.types import Finding, is_status_record
+
+# npm lockfiles that share the node_modules/<name> install layout. Discover
+# maps yarn.lock / pnpm-lock.yaml to ecosystem "npm"; installed-check must
+# treat them the same as package-lock.json or yarn/pnpm findings never demote.
+_NPM_LOCKFILES = frozenset({
+    "package-lock.json",
+    "yarn.lock",
+    "pnpm-lock.yaml",
+})
 
 
 def _extract_package_name(purl: str) -> str:
@@ -52,14 +62,14 @@ def _lockfile_name(manifest_path: str) -> str:
 def check_installed_local(finding: Finding) -> Finding:
     """Check whether the package in *finding* is installed on disk.
 
-    Sets finding["installed"] = True/False for npm and composer findings.
+    Sets finding["installed"] = True/False for npm (incl. yarn/pnpm) and composer findings.
     Returns the finding unchanged for unsupported ecosystems (pip, etc.).
     """
     manifest_path = finding.get("manifest_path", "")
     lockfile = _lockfile_name(manifest_path)
     lockfile_dir = Path(manifest_path).parent
 
-    if lockfile == "package-lock.json":
+    if lockfile in _NPM_LOCKFILES:
         pkg_name = _extract_package_name(finding.get("purl", ""))
         install_path = lockfile_dir / "node_modules" / pkg_name
         finding["installed"] = install_path.exists()
@@ -99,7 +109,7 @@ def _install_path_for(finding: Finding) -> str | None:
     lockfile = _lockfile_name(manifest_path)
     manifest_dir = PurePosixPath(manifest_path).parent
     pkg_name = _extract_package_name(finding.get("purl", ""))
-    if lockfile == "package-lock.json":
+    if lockfile in _NPM_LOCKFILES:
         return str(manifest_dir / "node_modules" / pkg_name)
     if lockfile == "composer.lock":
         parts = pkg_name.split("/", 1)
