@@ -303,3 +303,14 @@ def test_severity_escalation_triggers_even_when_baseline_says_existing(tmp_state
     result = check_for_new_findings(tmp_state, threshold="critical")
     assert result["triggered"] is True
     assert result["new_findings"]["critical"] == 1
+
+
+def test_webhook_logs_non_2xx(caplog):
+    """HTTP 500 from the webhook endpoint must be logged, not treated as success."""
+    import logging
+    payload = {"event": "pkgfence.scan.new_findings", "run_id": "r1"}
+    with patch("scripts.notify.httpx.post") as mock_post:
+        mock_post.return_value = MagicMock(status_code=500)
+        with caplog.at_level(logging.WARNING, logger="scripts.notify"):
+            send_webhook("https://hooks.example/pkgfence", payload)
+    assert any("500" in r.message for r in caplog.records)

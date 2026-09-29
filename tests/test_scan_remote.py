@@ -14,9 +14,9 @@ def test_scan_remote_manifest_uses_scanner_path(mocker):
         "ecosystem": "npm", "manifest_hash": "abc123", "tier": 1,
     }
     mock_runner = mocker.MagicMock()
-    mock_runner.run.return_value = '{"results": []}'
+    mock_runner.run_with_rc.return_value = ('{"results": []}', 0)
     scan_remote_manifest(manifest, mock_runner, scanner_path="/opt/bin/osv-scanner")
-    cmd = mock_runner.run.call_args[0][0]
+    cmd = mock_runner.run_with_rc.call_args[0][0]
     assert cmd[0] == "/opt/bin/osv-scanner"
 
 
@@ -27,9 +27,9 @@ def test_scan_remote_manifest_default_scanner(mocker):
         "ecosystem": "npm", "manifest_hash": "abc123", "tier": 1,
     }
     mock_runner = mocker.MagicMock()
-    mock_runner.run.return_value = '{"results": []}'
+    mock_runner.run_with_rc.return_value = ('{"results": []}', 0)
     scan_remote_manifest(manifest, mock_runner)
-    cmd = mock_runner.run.call_args[0][0]
+    cmd = mock_runner.run_with_rc.call_args[0][0]
     assert cmd[0] == "osv-scanner"
 
 
@@ -58,7 +58,7 @@ def test_scan_remote_manifest_runs_osv_scanner_remotely():
     """Remote scan invokes `osv-scanner -L <path> --format json` via SSHRunner."""
     runner = MagicMock()
     runner.host = "dev-host-1.example"
-    runner.run.return_value = OSV_JSON_FIXTURE
+    runner.run_with_rc.return_value = (OSV_JSON_FIXTURE, 0)
     manifest = {
         "target": "dev-host-1",
         "host": "dev-host-1.example",
@@ -68,7 +68,7 @@ def test_scan_remote_manifest_runs_osv_scanner_remotely():
         "tier": 2,
     }
     findings = scan_remote_manifest(manifest, runner)
-    args = runner.run.call_args[0][0]
+    args = runner.run_with_rc.call_args[0][0]
     assert args[0] == "osv-scanner"
     assert "-L" in args
     assert args[args.index("-L") + 1] == "/var/www/app/package-lock.json"
@@ -93,7 +93,7 @@ def test_scan_remote_manifest_skips_scan_error_manifests():
         "error": "unreachable",
     }
     findings = scan_remote_manifest(manifest, runner)
-    runner.run.assert_not_called()
+    runner.run_with_rc.assert_not_called()
     assert len(findings) == 1
     assert findings[0]["vuln_id"] == "SCAN_ERROR"
     assert findings[0]["target"] == "dev-host-1"
@@ -104,7 +104,7 @@ def test_scan_remote_manifest_ssh_unreachable_becomes_scan_error():
     Finding with 'ssh unreachable' in the description (distinguishable from
     the pass-through and parse-failure SCAN_ERROR branches)."""
     runner = MagicMock()
-    runner.run.side_effect = SSHUnreachableError("connection timeout")
+    runner.run_with_rc.side_effect = SSHUnreachableError("connection timeout")
     manifest: RemoteManifest = {
         "target": "dev-host-1",
         "host": "dev-host-1.example",
@@ -125,7 +125,7 @@ def test_scan_remote_manifest_parse_failure_becomes_scan_error():
     """ScannerError from parse_osv_output produces a SCAN_ERROR Finding
     with 'output parse failed' in the description."""
     runner = MagicMock()
-    runner.run.return_value = "{not valid json"
+    runner.run_with_rc.return_value = ("{not valid json", 0)
     manifest: RemoteManifest = {
         "target": "dev-host-1",
         "host": "dev-host-1.example",
@@ -139,7 +139,7 @@ def test_scan_remote_manifest_parse_failure_becomes_scan_error():
         findings = scan_remote_manifest(manifest, runner)
     assert len(findings) == 1
     assert findings[0]["vuln_id"] == "SCAN_ERROR"
-    assert "output parse failed" in findings[0]["description"]
+    assert "osv-scanner failed" in findings[0]["description"]
     assert "invalid json" in findings[0]["description"]
 
 
@@ -183,7 +183,7 @@ def test_scan_remote_manifests_batch_preserves_order_and_isolates_errors():
     SCAN_ERROR manifest passes through as a SCAN_ERROR Finding and is excluded
     from the batch invocation."""
     runner = MagicMock()
-    runner.run.return_value = BATCH_OSV_JSON_FIXTURE
+    runner.run_with_rc.return_value = (BATCH_OSV_JSON_FIXTURE, 0)
 
     manifests: list[RemoteManifest] = [
         {
@@ -220,19 +220,20 @@ def test_scan_remote_manifests_batch_preserves_order_and_isolates_errors():
     assert vuln_ids == ["GHSA-jf85-cpcp-j695", "GHSA-jf85-cpcp-j695", "SCAN_ERROR"]
     scan_error = next(f for f in findings if f["vuln_id"] == "SCAN_ERROR")
     assert "discovery failed" in scan_error["description"]
-    # Verify runner.run was called exactly ONCE (single batched invocation)
-    assert runner.run.call_count == 1
-    cmd = runner.run.call_args.args[0]
+    # Verify run_with_rc was called exactly ONCE (single batched invocation)
+    assert runner.run_with_rc.call_count == 1
+    cmd = runner.run_with_rc.call_args.args[0]
     assert cmd.count("-L") == 2
 
 
 def test_batch_scan_single_invocation_with_repeated_L_flags():
     runner = MagicMock()
-    runner.run.return_value = (
+    runner.run_with_rc.return_value = (
         '{"results": ['
         '{"source": {"path": "/a/package-lock.json"}, "packages": []},'
         '{"source": {"path": "/b/package-lock.json"}, "packages": []}'
-        ']}'
+        ']}',
+        0,
     )
     manifests = [
         {"target": "bespin", "host": "h", "path": "/a/package-lock.json",
@@ -241,8 +242,8 @@ def test_batch_scan_single_invocation_with_repeated_L_flags():
          "ecosystem": "npm", "manifest_hash": "", "tier": 1},
     ]
     findings = scan_remote_manifests(manifests, runner)
-    assert runner.run.call_count == 1
-    cmd = runner.run.call_args.args[0]
+    assert runner.run_with_rc.call_count == 1
+    cmd = runner.run_with_rc.call_args.args[0]
     assert cmd.count("-L") == 2
     assert findings == []
 
@@ -250,7 +251,12 @@ def test_batch_scan_single_invocation_with_repeated_L_flags():
 def test_batch_scan_falls_back_to_per_manifest_on_parse_error():
     runner = MagicMock()
     good = '{"results": []}'
-    runner.run.side_effect = ["NOT JSON", good, good]  # batch fails, 2 singles
+    # batch fails parse; 2 singles succeed with exit 0
+    runner.run_with_rc.side_effect = [
+        ("NOT JSON", 0),
+        (good, 0),
+        (good, 0),
+    ]
     manifests = [
         {"target": "bespin", "host": "h", "path": "/a/package-lock.json",
          "ecosystem": "npm", "manifest_hash": "", "tier": 1},
@@ -258,7 +264,7 @@ def test_batch_scan_falls_back_to_per_manifest_on_parse_error():
          "ecosystem": "npm", "manifest_hash": "", "tier": 1},
     ]
     findings = scan_remote_manifests(manifests, runner)
-    assert runner.run.call_count == 3
+    assert runner.run_with_rc.call_count == 3
     assert findings == []  # per-manifest path succeeded; no SCAN_ERROR
 
 
@@ -266,7 +272,7 @@ def test_batch_scan_unreachable_yields_scan_error_per_manifest():
     """Issue #19.3: SSHUnreachableError on the batched call produces one
     SCAN_ERROR per scannable manifest (same isolation as per-manifest)."""
     runner = MagicMock()
-    runner.run.side_effect = SSHUnreachableError("dropped mid-scan")
+    runner.run_with_rc.side_effect = SSHUnreachableError("dropped mid-scan")
     manifests = [
         {"target": "bespin", "host": "h", "path": "/a/package-lock.json",
          "ecosystem": "npm", "manifest_hash": "", "tier": 1},
@@ -274,7 +280,7 @@ def test_batch_scan_unreachable_yields_scan_error_per_manifest():
          "ecosystem": "npm", "manifest_hash": "", "tier": 1},
     ]
     findings = scan_remote_manifests(manifests, runner)
-    assert runner.run.call_count == 1  # one batched attempt, no per-manifest retry
+    assert runner.run_with_rc.call_count == 1  # one batched attempt, no per-manifest retry
     assert len(findings) == 2
     assert all(f["status"] == "SCAN_ERROR" for f in findings)
     assert {f["manifest_path"] for f in findings} == {
@@ -288,11 +294,11 @@ def test_batch_scan_unmappable_source_path_falls_back_not_drops():
     runner = MagicMock()
     # Batch returns a result whose source path differs from the -L argument,
     # then the two per-manifest retries return empty clean scans.
-    runner.run.side_effect = [
-        '{"results": [{"source": {"path": "/normalized/a/package-lock.json"}, '
-        '"packages": []}]}',
-        '{"results": []}',
-        '{"results": []}',
+    runner.run_with_rc.side_effect = [
+        ('{"results": [{"source": {"path": "/normalized/a/package-lock.json"}, '
+         '"packages": []}]}', 0),
+        ('{"results": []}', 0),
+        ('{"results": []}', 0),
     ]
     manifests = [
         {"target": "bespin", "host": "h", "path": "/a/package-lock.json",
@@ -301,5 +307,81 @@ def test_batch_scan_unmappable_source_path_falls_back_not_drops():
          "ecosystem": "npm", "manifest_hash": "", "tier": 1},
     ]
     findings = scan_remote_manifests(manifests, runner)
-    assert runner.run.call_count == 3  # 1 batch + 2 per-manifest fallback
+    assert runner.run_with_rc.call_count == 3  # 1 batch + 2 per-manifest fallback
     assert findings == []  # no silent drop, no spurious SCAN_ERROR
+
+
+def test_remote_exit_128_is_scan_error_not_clean():
+    """Exit 128 (empty/malformed lockfile) with empty results JSON must be
+    SCAN_ERROR — previously runner.run ignored rc and a clean-looking body
+    produced zero findings (false clean)."""
+    runner = MagicMock()
+    runner.run_with_rc.return_value = ('{"results": []}', 128)
+    manifest = {
+        "target": "dev-host-1",
+        "host": "h",
+        "path": "/var/www/app/package-lock.json",
+        "ecosystem": "npm",
+        "manifest_hash": "a" * 64,
+        "tier": 2,
+    }
+    findings = scan_remote_manifest(manifest, runner)
+    assert len(findings) == 1
+    assert findings[0]["status"] == "SCAN_ERROR"
+    assert "empty/malformed" in findings[0]["description"].lower() or "128" in findings[0]["description"]
+
+
+def test_remote_exit_1_with_vulns_is_success():
+    """Exit 1 means vulns found — still a successful scan locally and remotely."""
+    runner = MagicMock()
+    runner.run_with_rc.return_value = (OSV_JSON_FIXTURE, 1)
+    manifest = {
+        "target": "dev-host-1",
+        "host": "h",
+        "path": "/var/www/app/package-lock.json",
+        "ecosystem": "npm",
+        "manifest_hash": "a" * 64,
+        "tier": 2,
+    }
+    findings = scan_remote_manifest(manifest, runner)
+    assert len(findings) == 1
+    assert findings[0]["vuln_id"] == "GHSA-jf85-cpcp-j695"
+
+
+def test_remote_exit_127_is_scan_error():
+    """Missing remote osv-scanner binary (exit 127) must not look clean."""
+    runner = MagicMock()
+    runner.run_with_rc.return_value = ("", 127)
+    manifest = {
+        "target": "dev-host-1",
+        "host": "h",
+        "path": "/var/www/app/package-lock.json",
+        "ecosystem": "npm",
+        "manifest_hash": "a" * 64,
+        "tier": 2,
+    }
+    findings = scan_remote_manifest(manifest, runner)
+    assert len(findings) == 1
+    assert findings[0]["status"] == "SCAN_ERROR"
+    assert "127" in findings[0]["description"]
+
+
+def test_batch_non_success_exit_falls_back_to_per_manifest():
+    """Batch exit 128 falls back so each lockfile gets its own diagnosis."""
+    runner = MagicMock()
+    runner.run_with_rc.side_effect = [
+        ('{"results": []}', 128),          # batch fails
+        ('{"results": []}', 128),          # per-manifest a
+        ('{"results": []}', 0),            # per-manifest b clean
+    ]
+    manifests = [
+        {"target": "bespin", "host": "h", "path": "/a/package-lock.json",
+         "ecosystem": "npm", "manifest_hash": "", "tier": 1},
+        {"target": "bespin", "host": "h", "path": "/b/package-lock.json",
+         "ecosystem": "npm", "manifest_hash": "", "tier": 1},
+    ]
+    findings = scan_remote_manifests(manifests, runner)
+    assert runner.run_with_rc.call_count == 3
+    assert len(findings) == 1
+    assert findings[0]["status"] == "SCAN_ERROR"
+    assert findings[0]["manifest_path"] == "/a/package-lock.json"

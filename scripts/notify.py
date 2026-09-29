@@ -175,13 +175,18 @@ def send_webhook(url: str, payload: dict) -> None:
     """POST the notification payload to a webhook URL.
 
     Best-effort: catches all exceptions and logs a warning — never raises.
+    Non-2xx HTTP responses are also logged (a 500 used to look like success).
 
     Args:
         url: Webhook endpoint URL
         payload: JSON-serialisable dict to POST
     """
     try:
-        httpx.post(url, json=payload, timeout=10)
+        resp = httpx.post(url, json=payload, timeout=10)
+        if resp.status_code < 200 or resp.status_code >= 300:
+            log.warning(
+                "webhook POST to %s returned HTTP %d", url, resp.status_code
+            )
     except Exception as exc:  # noqa: BLE001
         log.warning("webhook POST to %s failed: %s", url, exc)
 

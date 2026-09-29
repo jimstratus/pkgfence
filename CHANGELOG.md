@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased — remote exit-code + yarn/pnpm installed-check
+
+### Bug fixes
+- **Remote SSH osv-scanner exit codes ignored** — `scan_remote` used `runner.run()` which only surfaces SSH connect failures (rc 255). Exit 128 (empty/malformed lockfile) or exit 2/127 with an empty `{"results": []}` body looked like a clean scan. Now uses `run_with_rc` and mirrors local `OSV_SUCCESS_EXIT_CODES` semantics; batch non-success falls back to per-manifest diagnosis.
+- **yarn.lock / pnpm-lock.yaml never demoted** — discover maps both to ecosystem `npm`, but installed-check only recognized `package-lock.json`. Yarn/pnpm findings never got `installed=False` demotion. Both lockfiles now share the `node_modules/<name>` path check (local + remote batch).
+- **Corrupt baseline crashed scan/notify** — `load_baseline` let `JSONDecodeError` propagate. Truncated JSON now returns `None` (treat as absent) with a warning.
+- **Webhook HTTP errors silent** — `send_webhook` treated any completed POST as success. Non-2xx responses are now logged.
+
+### Tests
+- 439 → 448 (+9): remote exit 128/127/1, batch non-success fallback, yarn/pnpm installed local+remote, corrupt baseline, webhook HTTP 500.
+
+
 ## Unreleased — dependency hygiene
 
 ### Dependencies

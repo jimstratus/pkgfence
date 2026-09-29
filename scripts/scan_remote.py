@@ -9,7 +9,13 @@ import json
 from scripts.lib.remote_types import RemoteManifest
 from scripts.lib.ssh_runner import SSHRunner, SSHUnreachableError, SSHArgumentError
 from scripts.lib.types import Finding, new_finding
-from scripts.scan_local import parse_osv_output, ScannerError, _findings_from_result
+from scripts.scan_local import (
+    parse_osv_output,
+    ScannerError,
+    EmptyLockfileError,
+    OSV_SUCCESS_EXIT_CODES,
+    _findings_from_result,
+)
 from scripts.lib.logger import get_logger
 
 log = get_logger(__name__)
@@ -17,7 +23,7 @@ log = get_logger(__name__)
 
 def _scan_error_finding(manifest: RemoteManifest, description: str) -> Finding:
     """Build a SCAN_ERROR Finding from a manifest and a diagnostic message.
-    Shared by all three SCAN_ERROR branches in scan_remote_manifest."""
+    Shared by all SCAN_ERROR branches in scan_remote_manifest."""
     target = manifest.get("target", "unknown")
     return new_finding(
         purl=f"pkg:scan-error/{target}@-",
@@ -27,6 +33,31 @@ def _scan_error_finding(manifest: RemoteManifest, description: str) -> Finding:
         target=target,
         status="SCAN_ERROR",
         description=description,
+    )
+
+
+def _check_osv_exit(stdout: str, returncode: int, lockfile_path: str) -> str:
+    """Mirror local run_osv_scanner_lockfile exit-code semantics on remote.
+
+    osv-scanner exits 0 (clean) or 1 (vulns found) on success. Exit 128 means
+    empty/malformed lockfile; 127 means binary missing; other non-zero is a
+    scanner error. Ignoring these (as the previous runner.run path did) let a
+    failed remote scan with empty ``{"results": []}`` look like a clean bill
+    of health.
+    """
+    if returncode in OSV_SUCCESS_EXIT_CODES:
+        return stdout
+    if returncode == 128:
+        raise EmptyLockfileError(
+            f"osv-scanner: no package sources found in {lockfile_path} "
+            f"(exit 128)"
+        )
+    if returncode == 127:
+        raise ScannerError(
+            f"osv-scanner binary not found in remote PATH (exit 127)"
+        )
+    raise ScannerError(
+        f"osv-scanner failed with exit {returncode} on {lockfile_path}"
     )
 
 
@@ -55,7 +86,7 @@ def scan_remote_manifest(
 
     cmd = [scanner_path or "osv-scanner", "-L", manifest["path"], "--format", "json"]
     try:
-        raw = runner.run(cmd)
+        raw, rc = runner.run_with_rc(cmd)
     except SSHUnreachableError as e:
         log.warning("remote scan %s unreachable: %s", manifest.get("target"), e)
         return [_scan_error_finding(manifest, f"ssh unreachable: {e}")]
@@ -67,13 +98,16 @@ def scan_remote_manifest(
         return [_scan_error_finding(manifest, f"ssh argument rejected: {e}")]
 
     try:
+        raw = _check_osv_exit(raw, rc, manifest["path"])
         return parse_osv_output(
             raw,
             manifest_path=manifest["path"],
             target=manifest["target"],
         )
+    except EmptyLockfileError as e:
+        return [_scan_error_finding(manifest, f"empty/malformed lockfile: {e}")]
     except ScannerError as e:
-        return [_scan_error_finding(manifest, f"osv-scanner output parse failed: {e}")]
+        return [_scan_error_finding(manifest, f"osv-scanner failed: {e}")]
 
 
 def _parse_batch_output(raw: str, manifests: list[RemoteManifest]) -> list[Finding]:
@@ -134,7 +168,12 @@ def scan_remote_manifests(
         cmd += ["-L", m["path"]]
     cmd += ["--format", "json"]
     try:
-        raw = runner.run(cmd)
+        raw, rc = runner.run_with_rc(cmd)
+        # Non-success exit → fall back to per-manifest so each lockfile gets
+        # its own exit-code diagnosis (empty lockfile vs missing binary vs
+        # real scanner error) instead of a single opaque batch failure.
+        if rc not in OSV_SUCCESS_EXIT_CODES:
+            raise ScannerError(f"osv-scanner batch exit {rc}")
         return findings + _parse_batch_output(raw, scannable)
     except SSHUnreachableError as e:
         log.warning("remote scan %s unreachable: %s", scannable[0].get("target"), e)

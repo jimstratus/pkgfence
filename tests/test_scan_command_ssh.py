@@ -47,7 +47,9 @@ def test_run_scan_with_ssh_target_includes_remote_findings(tmp_path, tmp_state):
         if command[:2] == ["ls", "-d"]:
             paths = command[2:]
             return ("\n".join(paths) + "\n", 0)
-        raise AssertionError(f"unexpected run_with_rc command: {command}")
+        # Remote scan now uses run_with_rc so exit codes are visible; reuse
+        # the same command dispatch as fake_ssh_run and report exit 0 (success).
+        return (fake_ssh_run(self, command), 0)
 
     with patch("scripts.lib.ssh_runner.SSHRunner.run", new=fake_ssh_run), \
          patch("scripts.lib.ssh_runner.SSHRunner.run_with_rc", new=fake_ssh_run_with_rc):
@@ -118,7 +120,11 @@ def test_run_scan_with_unreachable_ssh_target_exit_1_not_2(tmp_path, tmp_state):
     def fake_run(self, command):
         raise SSHUnreachableError("host unreachable")
 
-    with patch("scripts.lib.ssh_runner.SSHRunner.run", new=fake_run):
+    def fake_run_with_rc(self, command):
+        raise SSHUnreachableError("host unreachable")
+
+    with patch("scripts.lib.ssh_runner.SSHRunner.run", new=fake_run), \
+         patch("scripts.lib.ssh_runner.SSHRunner.run_with_rc", new=fake_run_with_rc):
         with patch("scripts.scan_command.KEVClient") as mock_kev_cls:
             mock_kev = MagicMock()
             mock_kev._known_set = set()
@@ -207,7 +213,14 @@ def test_run_scan_with_two_ssh_targets_aggregates_findings(tmp_path, tmp_state):
             return OSV_HOST_A if self.host == "host-a.example" else OSV_HOST_B
         raise AssertionError(f"unexpected command: {command}")
 
-    with patch("scripts.lib.ssh_runner.SSHRunner.run", new=fake_ssh_run):
+    def fake_ssh_run_with_rc(self, command):
+        if command[:2] == ["ls", "-d"]:
+            paths = command[2:]
+            return ("\n".join(paths) + "\n", 0)
+        return (fake_ssh_run(self, command), 0)
+
+    with patch("scripts.lib.ssh_runner.SSHRunner.run", new=fake_ssh_run), \
+         patch("scripts.lib.ssh_runner.SSHRunner.run_with_rc", new=fake_ssh_run_with_rc):
         with patch("scripts.scan_command.KEVClient") as mock_kev_cls:
             mock_kev = MagicMock()
             mock_kev._known_set = set()
