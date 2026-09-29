@@ -11,11 +11,23 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-PYTHON="${PYTHON:-python}"
+if [[ -n "${PYTHON:-}" ]]; then
+  :
+elif [[ -x .venv/bin/python ]]; then
+  PYTHON=.venv/bin/python
+elif command -v python3 >/dev/null 2>&1; then
+  PYTHON=python3
+elif command -v python >/dev/null 2>&1; then
+  PYTHON=python
+else
+  echo "error: no Python interpreter found (set PYTHON=...)" >&2
+  exit 1
+fi
+
 echo "==> Full pytest suite ($PYTHON)"
-$PYTHON -m pytest -v --tb=short
+"$PYTHON" -m pytest -v --tb=short
 
 echo "==> Safety invariants S1–S4"
-$PYTHON -m pytest tests/test_safety_invariants.py tests/test_s4_no_remote_content_exfil.py -v
+"$PYTHON" -m pytest tests/test_safety_invariants.py tests/test_s4_no_remote_content_exfil.py -v
 
 echo "==> ci_local.sh OK"
