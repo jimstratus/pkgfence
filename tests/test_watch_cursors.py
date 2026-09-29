@@ -50,3 +50,15 @@ def test_find_new_ids_legacy_last_id_cursor_migrates_silently():
     current = {"CVE-2025-1", "CVE-2025-2", "CVE-2025-3"}
     cursors = {"kev": {"last_id": "CVE-2025-2"}}
     assert find_new_ids(current, "kev", cursors) == set()
+
+
+def test_load_cursors_corrupt_json_returns_empty(tmp_path):
+    p = tmp_path / "cursors.json"
+    p.write_text("{not-json", encoding="utf-8")
+    assert load_cursors(p) == {}
+
+
+def test_find_new_ids_empty_seen_ids_treats_all_as_new():
+    current = {"CVE-2025-1", "CVE-2025-2"}
+    cursors = {"kev": {"seen_ids": []}}
+    assert find_new_ids(current, "kev", cursors) == current

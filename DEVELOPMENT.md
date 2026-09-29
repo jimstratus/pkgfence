@@ -195,7 +195,7 @@ See `scripts/lib/SAFETY_INVARIANTS.md` for the full documentation.
 
 ## CI/CD
 
-GitHub Actions workflow at `.github/workflows/test.yml` runs the full test suite on push and PR. The safety invariant tests are included and must pass for CI to succeed.
+GitHub Actions workflow at `.github/workflows/test.yml` runs the full test suite on push and PR. The safety invariant tests (S1–S4) are included and must pass for CI to succeed. When the authenticated token cannot push workflow file changes (missing `workflow` OAuth scope), run the local stand-in: `bash scripts/ci_local.sh`.
 
 ## Troubleshooting
 
