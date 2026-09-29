@@ -11,17 +11,17 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-if [[ -n "${PYTHON:-}" ]]; then
-  :
-elif [[ -x .venv/bin/python ]]; then
-  PYTHON=.venv/bin/python
-elif command -v python3 >/dev/null 2>&1; then
-  PYTHON=python3
-elif command -v python >/dev/null 2>&1; then
-  PYTHON=python
-else
-  echo "error: no Python interpreter found (set PYTHON=...)" >&2
-  exit 1
+if [[ -z "${PYTHON:-}" ]] || ! command -v "$PYTHON" >/dev/null 2>&1; then
+  if [[ -x .venv/bin/python ]]; then
+    PYTHON=.venv/bin/python
+  elif command -v python3 >/dev/null 2>&1; then
+    PYTHON=python3
+  elif command -v python >/dev/null 2>&1; then
+    PYTHON=python
+  else
+    echo "error: no Python interpreter found (set PYTHON=...)" >&2
+    exit 1
+  fi
 fi
 
 echo "==> Full pytest suite ($PYTHON)"

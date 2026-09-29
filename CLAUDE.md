@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Install (editable, with dev deps) — use the venv
 .venv/Scripts/python.exe -m pip install -e ".[dev]"
 
-# Run all tests
+# Run all tests (491 tests)
 .venv/Scripts/python.exe -m pytest -v --strict-markers
 
 # Run a single test file

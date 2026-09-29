@@ -106,8 +106,9 @@ def main() -> None:
     import argparse
     parser = argparse.ArgumentParser(prog="pkgfence-watch",
                                      description="Watch for new threat-intel entries")
-    # default must be a Path (not str): argparse on Python 3.11 does not run
-    # type= over the default, and run_watch does Path division on state_dir.
+    # Explicit Path default documents the contract for run_watch (Path division).
+    # argparse also converts string defaults via type=, including on 3.11; this
+    # is an explicit-type cleanup rather than a version-specific bug fix.
     parser.add_argument("--state", type=Path, default=DEFAULT_STATE_DIR,
                         help="State directory")
     parser.add_argument("--interval", type=int, default=DEFAULT_INTERVAL,
