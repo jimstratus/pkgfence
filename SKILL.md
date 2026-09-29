@@ -16,22 +16,21 @@ description: |
   secrets scanning (use Gitleaks), or anything outside dependency /
   supply chain scope.
 
-  Phase 3a (current, v0.3.0): EPSS enrichment + Triple-Score ranking.
-  Scans local registry roots AND remote SSH targets (Pattern B —
-  osv-scanner runs on the remote, only JSON transits locally). Reports
-  include YAML frontmatter for machine parsing and can be auto-published
-  to a central scp sink. EPSS adds exploit-likelihood signals (FIRST.org
-  Exploit Prediction Scoring System). Triple-score = 0.4*CVSS + 0.3*EPSS
-  + 0.3*KEV. GitHub orgs, watch mode, audit mode, behavioral heuristics,
-  and the fix-recommendation pipeline are deferred to later phases.
+  Current release v0.5.0 (Phase 3–5). Scans local registry roots AND remote
+  SSH targets (Pattern B — osv-scanner runs on the remote, only JSON
+  transits locally). Enrichment: KEV, EPSS, GHSA, deps.dev, Scorecard,
+  behavioral heuristics. Also: on-demand lookup, watch daemon, CDN/SRI
+  scanner, --with-fixes recommendations. Reports include YAML frontmatter
+  and can auto-publish via scp. Deferred: GitHub orgs, audit mode, LLM
+  fix critic, full ecosystem fixtures.
 allowed-tools: Read, Grep, Glob, Bash, WebFetch, Task
 license: LICENSE
 ---
 
 # pkgfence
 
-Multi-codebase dependency / supply-chain vulnerability scanner. Phase 1
-ships scan mode for local registry roots.
+Multi-codebase dependency / supply-chain vulnerability scanner (v0.5.0).
+Scans local registry roots and remote SSH targets; lookup/watch/CDN/fixes included.
 
 ## Quick start
 
@@ -68,12 +67,11 @@ ships scan mode for local registry roots.
 ## Architecture (6 layers)
 
 ```
-L5: Fix Recommendation Pipeline (DEFERRED to Phase 4)
-L4: Triage     — dedup, MAL-* override, expiring exceptions, sort, exclusions
-L3: Enrichment — CISA KEV actively_exploited overlay + EPSS exploit-likelihood
-L3.5: EPSS Enrichment — FIRST.org EPSS score + percentile (24h cache)
+L5: Fix recs / CDN/SRI / watch  — --with-fixes JSON, CDN missing-SRI, KEV watch daemon
+L4: Triage     — dedup, MAL-* override, expiring exceptions, sort, exclusions, installed-check
+L3: Enrichment — KEV + GHSA + EPSS + deps.dev + Scorecard + behavioral heuristics
 L2: Scanner    — osv-scanner v2 primary, OSV API fallback
-L1: Discovery  — walk registry roots (local + SSH remote)
+L1: Discovery  — walk registry roots (local + SSH remote) + EOL catalog
 ```
 
 Read [`references/workflows/scan-mode.md`](references/workflows/scan-mode.md)

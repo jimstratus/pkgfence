@@ -6,6 +6,8 @@ Missing SRI opens the door to CDN compromise / supply-chain injection.
 """
 import re
 from pathlib import Path
+
+from scripts.discover import DEFAULT_EXCLUDES
 from scripts.lib.types import new_finding, Finding
 from scripts.lib.logger import get_logger
 
@@ -24,6 +26,10 @@ EXTENSIONS = frozenset({".html", ".htm", ".php", ".asp", ".aspx", ".jsp",
                         ".jsx", ".tsx", ".vue", ".svelte", ".twig", ".liquid",
                         ".haml", ".slim"})
 
+# Only these <link rel=...> values load a fetchable resource that SRI protects.
+# preconnect / dns-prefetch / canonical / icon do not.
+SRI_LINK_RELS = frozenset({"stylesheet", "preload", "modulepreload"})
+
 SCRIPT_RE = re.compile(
     r'<script\b[^>]*\bsrc\s*=\s*["\']https?://([^"\']+)["\']',
     re.IGNORECASE,
@@ -32,7 +38,12 @@ LINK_RE = re.compile(
     r'<link\b[^>]*\bhref\s*=\s*["\']https?://([^"\']+)["\']',
     re.IGNORECASE,
 )
-INTEGRITY_RE = re.compile(r'\bintegrity\s*=', re.IGNORECASE)
+# (?<![\w-]) avoids matching prefixed attrs like data-integrity / data-rel.
+INTEGRITY_RE = re.compile(r'(?<![\w-])integrity\s*=', re.IGNORECASE)
+REL_RE = re.compile(
+    r'(?<![\w-])rel\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|([^\s>]+))',
+    re.IGNORECASE,
+)
 
 
 def _extract_host(url: str) -> str:
@@ -40,15 +51,54 @@ def _extract_host(url: str) -> str:
     return parts[0] if parts else ""
 
 
+def _opening_tag(text: str, start: int) -> str:
+    """Return the opening tag starting at ``start``, stopping at its own ``>``.
+
+    Quoted attribute values are respected so a ``>`` inside a string does not
+    truncate early. Integrity checks must stay inside this tag — looking past
+    it into neighboring tags caused false negatives when a sibling carried
+    ``integrity``.
+    """
+    in_quote: str | None = None
+    i = start
+    while i < len(text):
+        c = text[i]
+        if in_quote:
+            if c == in_quote:
+                in_quote = None
+        elif c in ('"', "'"):
+            in_quote = c
+        elif c == ">":
+            return text[start : i + 1]
+        i += 1
+    return text[start:]
+
+
+def _link_needs_sri(tag: str) -> bool:
+    m = REL_RE.search(tag)
+    if not m:
+        return False
+    raw = m.group(1) or m.group(2) or m.group(3) or ""
+    rels = {part.strip().lower() for part in raw.split()}
+    return bool(rels & SRI_LINK_RELS)
+
+
 def scan_cdn_sri(
     root: Path, target_name: str, excludes: set[str] | None = None
 ) -> list[Finding]:
     findings = []
-    ex = excludes or set()
+    # None → shared discovery excludes; explicit empty set opts out.
+    # Match discover: only path components *under* root count, so a scan root
+    # (or ancestor) named build/dist/vendor does not blank the whole tree.
+    ex = set(DEFAULT_EXCLUDES) if excludes is None else excludes
     for file_path in root.rglob("*"):
         if file_path.suffix.lower() not in EXTENSIONS:
             continue
-        if any(p in file_path.parts for p in ex):
+        try:
+            rel_parts = file_path.relative_to(root).parts
+        except ValueError:
+            continue
+        if any(p in rel_parts for p in ex):
             continue
         try:
             text = file_path.read_text(encoding="utf-8", errors="replace")
@@ -61,13 +111,12 @@ def scan_cdn_sri(
             for match in tag_re.finditer(text):
                 url = match.group(1)
                 host = _extract_host(url)
-                if not host:
+                if not host or host not in CDN_ORIGINS:
                     continue
-                if host not in CDN_ORIGINS:
+                tag = _opening_tag(text, match.start())
+                if tag_name == "link" and not _link_needs_sri(tag):
                     continue
-                tag_start = match.start()
-                context = text[tag_start:tag_start + 500]
-                if INTEGRITY_RE.search(context):
+                if INTEGRITY_RE.search(tag):
                     continue
                 f = new_finding(
                     purl=f"pkg:cdn/{host}",
