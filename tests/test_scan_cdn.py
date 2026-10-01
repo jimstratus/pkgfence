@@ -269,7 +269,7 @@ def test_walk_does_not_follow_dir_symlink_cycle(tmp_path):
     )
     # Cycle: a/b/loop -> a (ancestor)
     try:
-        (nested / "loop").symlink_to(tmp_path / "a")
+        (nested / "loop").symlink_to(tmp_path / "a", target_is_directory=True)
     except OSError as exc:
         pytest.skip(f"symlink creation requires privilege (Windows): {exc}")
 
@@ -297,7 +297,7 @@ def test_walk_does_not_follow_external_dir_symlink(tmp_path):
         '<script src="https://unpkg.com/app.js"></script>', encoding="utf-8"
     )
     try:
-        (root / "escape").symlink_to(outside)
+        (root / "escape").symlink_to(outside, target_is_directory=True)
     except OSError as exc:
         pytest.skip(f"symlink creation requires privilege (Windows): {exc}")
 
