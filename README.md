@@ -48,7 +48,7 @@ flowchart LR
 - **CDN/SRI scanner** — flags CDN `<script>`/`<link>` loads missing `integrity` hashes
 - Hard safety invariants S1, S2, S3, S4 (and documented S4a EOL scoped exception) enforced by tests
 - Four-state exit codes (0 clean / 1 findings / 2 scanner error / 3 config error)
-- **437 tests passing**, every code path TDD-built
+- **491 tests passing**, every code path TDD-built
 
 ## What's deferred (v2+)
 
@@ -121,7 +121,7 @@ pkgfence/
 │       ├── ssh_runner.py               ← SSH runner (shlex-quoted, allowlisted, ControlMaster)
 │       ├── remote_types.py             ← RemoteManifest TypedDict
 │       └── registry.py                 ← registry load/validate/atomic-write
-└── tests/                              ← 437 tests
+└── tests/                              ← 491 tests
     ├── conftest.py                     ← shared tmp_state, tmp_registry fixtures
     ├── fixtures/
     │   ├── npm/{vulnerable,clean,corrupted}/
@@ -242,7 +242,7 @@ Phase 2 SSH support closed the loop on the second class. During tier-1 dogfood, 
 
 ## Development
 
-- **Test suite**: `python -m pytest -v` (437 tests, all passing)
+- **Test suite**: `python -m pytest -v` (491 tests, all passing)
 - **Coverage**: `python -m pytest --cov=scripts --cov-report=term-missing`
 - **Lint**: not yet configured (Phase 5)
 - **CI**: GitHub Actions workflow at `.github/workflows/test.yml`

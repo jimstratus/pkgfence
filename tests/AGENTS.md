@@ -4,7 +4,7 @@
 # tests
 
 ## Purpose
-437 pytest tests covering unit, integration, safety invariants, and ecosystem validation. Organized as one test file per source module, plus dedicated safety invariant test files.
+491 pytest tests covering unit, integration, safety invariants, and ecosystem validation. Organized as one test file per source module, plus dedicated safety invariant test files.
 
 ## Key Files
 
@@ -38,6 +38,11 @@
 | `test_exceptions.py` | Exception rule loading |
 | `test_logger.py` | Logger setup |
 | `test_types.py` | TypedDict validation |
+| `test_watch_daemon.py` | Watch-mode daemon (KEV cycle, CLI) |
+| `test_enrich_depsdev_scorecard.py` | L3.7/L3.8 deps.dev + Scorecard enrichment |
+| `test_lookup_command.py` | Lookup CLI routing beyond the parser |
+| `test_lookup_report.py` | Lookup markdown/JSON renderers |
+| `test_lookup_websearch.py` | DDG web search + redirect defense |
 
 ## Subdirectories
 

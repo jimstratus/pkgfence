@@ -29,7 +29,8 @@ def _collect_feed_ids(client) -> set[str]:
         if not client._ensure_loaded():
             return set()
         if hasattr(client, "_known_set"):
-            return client._known_set
+            # Copy so callers cannot mutate the client's live set.
+            return set(client._known_set)
         if hasattr(client, "_scores"):
             return set(client._scores.keys())
     except Exception:
@@ -66,7 +67,7 @@ def _log_new_entries(state_dir: Path, feed: str, ids: set[str]) -> None:
     log_path = state_dir / "watch-log.jsonl"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     entries = []
-    for eid in sorted(ids):
+    for eid in sorted(ids, key=_id_sort_key):
         entries.append(json.dumps({
             "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "feed": feed,
@@ -105,7 +106,10 @@ def main() -> None:
     import argparse
     parser = argparse.ArgumentParser(prog="pkgfence-watch",
                                      description="Watch for new threat-intel entries")
-    parser.add_argument("--state", type=Path, default=str(DEFAULT_STATE_DIR),
+    # Explicit Path default documents the contract for run_watch (Path division).
+    # argparse also converts string defaults via type=, including on 3.11; this
+    # is an explicit-type cleanup rather than a version-specific bug fix.
+    parser.add_argument("--state", type=Path, default=DEFAULT_STATE_DIR,
                         help="State directory")
     parser.add_argument("--interval", type=int, default=DEFAULT_INTERVAL,
                         help="Seconds between watch cycles (default: 3600)")
