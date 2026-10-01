@@ -1,8 +1,12 @@
 """Tests for CDN/SRI scanner correctness."""
 from pathlib import Path
 
+import sys
+
+import pytest
+
 from scripts.discover import DEFAULT_EXCLUDES
-from scripts.scan_cdn import scan_cdn_sri
+from scripts.scan_cdn import _walk_pruned, scan_cdn_sri
 
 
 def _write(root: Path, rel: str, text: str) -> Path:
@@ -203,8 +207,6 @@ def test_custom_exclude_skips_named_dirs_not_defaults(tmp_path):
 
 def test_walk_prunes_excluded_dirs_before_descent(tmp_path):
     """Excluded directory names must not be entered (not merely filtered after rglob)."""
-    from scripts.scan_cdn import _walk_pruned
-
     nm = tmp_path / "node_modules" / "pkg"
     nm.mkdir(parents=True)
     (nm / "index.html").write_text("<html></html>", encoding="utf-8")
@@ -260,15 +262,16 @@ def test_empty_integrity_value_is_missing_sri(tmp_path):
 
 def test_walk_does_not_follow_dir_symlink_cycle(tmp_path):
     """Ancestor directory symlink must not cause unbounded recursion."""
-    from scripts.scan_cdn import _walk_pruned
-
     nested = tmp_path / "a" / "b"
     nested.mkdir(parents=True)
     (nested / "page.html").write_text(
         '<script src="https://unpkg.com/x.js"></script>', encoding="utf-8"
     )
     # Cycle: a/b/loop -> a (ancestor)
-    (nested / "loop").symlink_to(tmp_path / "a")
+    try:
+        (nested / "loop").symlink_to(tmp_path / "a")
+    except OSError as exc:
+        pytest.skip(f"symlink creation requires privilege (Windows): {exc}")
 
     paths = list(_walk_pruned(tmp_path, set()))
     assert any(p.name == "page.html" for p in paths)
@@ -282,8 +285,6 @@ def test_walk_does_not_follow_dir_symlink_cycle(tmp_path):
 
 def test_walk_does_not_follow_external_dir_symlink(tmp_path):
     """Directory symlink pointing outside the scan root must not be descended."""
-    from scripts.scan_cdn import _walk_pruned
-
     outside = tmp_path / "outside"
     outside.mkdir()
     (outside / "secret.html").write_text(
@@ -295,7 +296,10 @@ def test_walk_does_not_follow_external_dir_symlink(tmp_path):
     (root / "app.html").write_text(
         '<script src="https://unpkg.com/app.js"></script>', encoding="utf-8"
     )
-    (root / "escape").symlink_to(outside)
+    try:
+        (root / "escape").symlink_to(outside)
+    except OSError as exc:
+        pytest.skip(f"symlink creation requires privilege (Windows): {exc}")
 
     paths = list(_walk_pruned(root, set()))
     names = {p.name for p in paths}
@@ -308,24 +312,38 @@ def test_walk_does_not_follow_external_dir_symlink(tmp_path):
     assert "secret.js" not in findings[0]["description"]
 
 
-def test_walk_handles_deep_nonsymlink_tree(tmp_path):
-    """Iterative walk must survive trees deeper than sys.getrecursionlimit()."""
-    import sys
-    from scripts.scan_cdn import _walk_pruned
+def test_walk_handles_deep_nonsymlink_tree():
+    """Iterative walk must survive depth > recursion limit without long FS paths.
 
+    Uses a synthetic in-memory tree (avoids Windows MAX_PATH) while still
+    proving the stack-based walker does not recurse into Python frames.
+    """
     depth = sys.getrecursionlimit() + 50
-    cur = tmp_path
-    for i in range(depth):
-        cur = cur / "d"
-        cur.mkdir()
-    leaf = cur / "deep.html"
-    leaf.write_text(
-        '<script src="https://unpkg.com/deep.js"></script>', encoding="utf-8"
-    )
+    leaf_name = "deep.html"
 
-    paths = list(_walk_pruned(tmp_path, set()))
-    assert any(p.name == "deep.html" for p in paths)
+    class _FakeEntry:
+        """Minimal Path stand-in for _walk_pruned (name / is_symlink / is_dir / iterdir)."""
 
-    findings = scan_cdn_sri(tmp_path, "test", excludes=set())
-    assert len(findings) == 1
-    assert "deep.js" in findings[0]["description"]
+        def __init__(self, name: str, *, is_directory: bool = False, children=None):
+            self.name = name
+            self._is_directory = is_directory
+            self._children = list(children or [])
+
+        def is_symlink(self) -> bool:
+            return False
+
+        def is_dir(self) -> bool:
+            return self._is_directory
+
+        def iterdir(self):
+            return iter(self._children)
+
+    leaf = _FakeEntry(leaf_name)
+    node = _FakeEntry("d", is_directory=True, children=[leaf])
+    for _ in range(depth - 1):
+        node = _FakeEntry("d", is_directory=True, children=[node])
+    root = _FakeEntry("root", is_directory=True, children=[node])
+
+    paths = list(_walk_pruned(root, set()))
+    assert any(p.name == leaf_name for p in paths)
+    assert len(paths) == 1
