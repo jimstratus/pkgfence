@@ -147,3 +147,87 @@ def test_excludes_are_relative_to_scan_root(tmp_path):
     findings = scan_cdn_sri(root, "test")
     assert len(findings) == 1
     assert "x.js" in findings[0]["description"]
+
+
+def test_data_meta_integrity_does_not_suppress_missing_sri(tmp_path):
+    """Quoted value text like integrity=true must not count as an integrity attr."""
+    _write(
+        tmp_path,
+        "index.html",
+        '<script data-meta="integrity=true" '
+        'src="https://cdnjs.cloudflare.com/ajax/libs/lodash.js"></script>',
+    )
+    findings = scan_cdn_sri(tmp_path, "test")
+    assert len(findings) == 1
+    assert findings[0]["vuln_id"] == "CDN-MISSING-SRI"
+
+
+def test_data_meta_rel_stylesheet_does_not_flag_link_without_rel(tmp_path):
+    """Quoted rel='stylesheet' inside another attr must not make the link SRI-eligible."""
+    _write(
+        tmp_path,
+        "index.html",
+        '<link data-meta="rel=\'stylesheet\'" href="https://cdn.jsdelivr.net/npm/x.css">\n'
+        '<link rel="stylesheet" href="https://unpkg.com/y.css">\n',
+    )
+    findings = scan_cdn_sri(tmp_path, "test")
+    assert len(findings) == 1
+    assert "y.css" in findings[0]["description"]
+    assert "x.css" not in findings[0]["description"]
+
+
+def test_custom_exclude_skips_named_dirs_not_defaults(tmp_path):
+    """Custom exclude set replaces defaults: only named dirs are pruned."""
+    _write(
+        tmp_path,
+        "vendor/lib/index.html",
+        '<script src="https://cdnjs.cloudflare.com/ajax/libs/v.js"></script>',
+    )
+    _write(
+        tmp_path,
+        "node_modules/pkg/index.html",
+        '<script src="https://cdnjs.cloudflare.com/ajax/libs/n.js"></script>',
+    )
+    _write(
+        tmp_path,
+        "app.html",
+        '<script src="https://cdnjs.cloudflare.com/ajax/libs/a.js"></script>',
+    )
+    findings = scan_cdn_sri(tmp_path, "test", excludes={"vendor"})
+    assert len(findings) == 2
+    descs = " ".join(f["description"] for f in findings)
+    assert "a.js" in descs
+    assert "n.js" in descs
+    assert "v.js" not in descs
+
+
+def test_walk_prunes_excluded_dirs_before_descent(tmp_path):
+    """Excluded directory names must not be entered (not merely filtered after rglob)."""
+    from scripts.scan_cdn import _walk_pruned
+
+    nm = tmp_path / "node_modules" / "pkg"
+    nm.mkdir(parents=True)
+    (nm / "index.html").write_text("<html></html>", encoding="utf-8")
+    (tmp_path / "app.html").write_text("<html></html>", encoding="utf-8")
+
+    entered: list[str] = []
+    real_iterdir = Path.iterdir
+
+    def tracking_iterdir(self: Path):
+        entered.append(self.name)
+        return real_iterdir(self)
+
+    # Patch Path.iterdir for the duration of the walk.
+    original = Path.iterdir
+    try:
+        Path.iterdir = tracking_iterdir  # type: ignore[method-assign]
+        paths = list(_walk_pruned(tmp_path, {"node_modules"}))
+    finally:
+        Path.iterdir = original  # type: ignore[method-assign]
+
+    assert any(p.name == "app.html" for p in paths)
+    assert not any("node_modules" in p.parts for p in paths)
+    # Walk entered tmp_path but never descended into node_modules.
+    assert tmp_path.name in entered or entered  # root was listed
+    assert "node_modules" not in entered
+    assert "pkg" not in entered

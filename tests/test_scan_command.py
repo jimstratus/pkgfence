@@ -292,3 +292,103 @@ def test_stale_enricher_emits_stale_message(tmp_state, tmp_registry):
     report = report_path.read_text(encoding="utf-8")
     assert "CISA KEV feed stale" in report
     assert "CISA KEV feed degraded" not in report
+
+
+def test_run_scan_forwards_root_exclude_to_cdn(tmp_path, tmp_state):
+    """run_scan must pass root.exclude to scan_cdn_sri (incl. exclude: [] opt-out)."""
+    from scripts.discover import DEFAULT_EXCLUDES
+    from scripts.scan_command import run_scan
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "index.html").write_text("<html></html>", encoding="utf-8")
+
+    def _registry(exclude_line: str) -> Path:
+        reg = tmp_path / f"reg-{hash(exclude_line) & 0xFFFF:x}.yaml"
+        ws = str(workspace).replace("\\", "/")
+        reg.write_text(
+            "version: 1\n"
+            "roots:\n"
+            f"  - path: '{ws}'\n"
+            "    tier: 1\n"
+            f"{exclude_line}"
+            "projects: []\n"
+            "ssh: []\n"
+            "github: []\n",
+            encoding="utf-8",
+        )
+        return reg
+
+    # exclude: [] opts out of defaults
+    with patch("scripts.scan_command.scan_all_manifests", return_value=[]), \
+         patch("scripts.scan_command.KEVClient") as kev_cls, \
+         patch("scripts.scan_command.EPSSClient") as epss_cls, \
+         patch("scripts.scan_command.GHSAHTTPClient") as ghsa_cls, \
+         patch("scripts.scan_command.scan_cdn_sri", return_value=[]) as cdn:
+        kev_cls.return_value.is_degraded = False
+        kev_cls.return_value.is_stale = False
+        kev_cls.return_value.is_known_exploited.return_value = False
+        kev_cls.return_value.refresh = MagicMock()
+        epss_cls.return_value.is_degraded = False
+        epss_cls.return_value.is_stale = False
+        epss_cls.return_value.feed_timestamp = None
+        epss_cls.return_value.refresh = MagicMock()
+        epss_cls.return_value.lookup.return_value = None
+        ghsa_cls.return_value.is_degraded = False
+        ghsa_cls.return_value.is_stale = False
+        ghsa_cls.return_value.advisories_fetched = 0
+        ghsa_cls.return_value.advisories_cached = 0
+        ghsa_cls.return_value.fetch.return_value = None
+        run_scan(registry_path=_registry("    exclude: []\n"), state_dir=tmp_state)
+        cdn.assert_called()
+        kwargs = cdn.call_args.kwargs
+        assert kwargs["excludes"] == set()
+
+    # custom exclude replaces defaults
+    with patch("scripts.scan_command.scan_all_manifests", return_value=[]), \
+         patch("scripts.scan_command.KEVClient") as kev_cls, \
+         patch("scripts.scan_command.EPSSClient") as epss_cls, \
+         patch("scripts.scan_command.GHSAHTTPClient") as ghsa_cls, \
+         patch("scripts.scan_command.scan_cdn_sri", return_value=[]) as cdn:
+        kev_cls.return_value.is_degraded = False
+        kev_cls.return_value.is_stale = False
+        kev_cls.return_value.is_known_exploited.return_value = False
+        kev_cls.return_value.refresh = MagicMock()
+        epss_cls.return_value.is_degraded = False
+        epss_cls.return_value.is_stale = False
+        epss_cls.return_value.feed_timestamp = None
+        epss_cls.return_value.refresh = MagicMock()
+        epss_cls.return_value.lookup.return_value = None
+        ghsa_cls.return_value.is_degraded = False
+        ghsa_cls.return_value.is_stale = False
+        ghsa_cls.return_value.advisories_fetched = 0
+        ghsa_cls.return_value.advisories_cached = 0
+        ghsa_cls.return_value.fetch.return_value = None
+        run_scan(
+            registry_path=_registry("    exclude:\n      - vendor\n"),
+            state_dir=tmp_state,
+        )
+        assert cdn.call_args.kwargs["excludes"] == {"vendor"}
+
+    # omitted exclude -> DEFAULT_EXCLUDES
+    with patch("scripts.scan_command.scan_all_manifests", return_value=[]), \
+         patch("scripts.scan_command.KEVClient") as kev_cls, \
+         patch("scripts.scan_command.EPSSClient") as epss_cls, \
+         patch("scripts.scan_command.GHSAHTTPClient") as ghsa_cls, \
+         patch("scripts.scan_command.scan_cdn_sri", return_value=[]) as cdn:
+        kev_cls.return_value.is_degraded = False
+        kev_cls.return_value.is_stale = False
+        kev_cls.return_value.is_known_exploited.return_value = False
+        kev_cls.return_value.refresh = MagicMock()
+        epss_cls.return_value.is_degraded = False
+        epss_cls.return_value.is_stale = False
+        epss_cls.return_value.feed_timestamp = None
+        epss_cls.return_value.refresh = MagicMock()
+        epss_cls.return_value.lookup.return_value = None
+        ghsa_cls.return_value.is_degraded = False
+        ghsa_cls.return_value.is_stale = False
+        ghsa_cls.return_value.advisories_fetched = 0
+        ghsa_cls.return_value.advisories_cached = 0
+        ghsa_cls.return_value.fetch.return_value = None
+        run_scan(registry_path=_registry(""), state_dir=tmp_state)
+        assert cdn.call_args.kwargs["excludes"] == set(DEFAULT_EXCLUDES)

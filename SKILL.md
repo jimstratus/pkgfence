@@ -64,7 +64,7 @@ Scans local registry roots and remote SSH targets; lookup/watch/CDN/fixes includ
    - `2` = scanner error
    - `3` = configuration / registry error
 
-## Architecture (6 layers)
+## Architecture (5 layers)
 
 ```
 L5: Fix recs / CDN/SRI / watch  — --with-fixes JSON, CDN missing-SRI, KEV watch daemon

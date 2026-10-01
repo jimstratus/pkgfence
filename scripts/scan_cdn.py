@@ -6,6 +6,7 @@ Missing SRI opens the door to CDN compromise / supply-chain injection.
 """
 import re
 from pathlib import Path
+from typing import Iterator
 
 from scripts.discover import DEFAULT_EXCLUDES
 from scripts.lib.types import new_finding, Finding
@@ -38,12 +39,65 @@ LINK_RE = re.compile(
     r'<link\b[^>]*\bhref\s*=\s*["\']https?://([^"\']+)["\']',
     re.IGNORECASE,
 )
-# (?<![\w-]) avoids matching prefixed attrs like data-integrity / data-rel.
-INTEGRITY_RE = re.compile(r'(?<![\w-])integrity\s*=', re.IGNORECASE)
-REL_RE = re.compile(
-    r'(?<![\w-])rel\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|([^\s>]+))',
-    re.IGNORECASE,
-)
+
+
+def _iter_attrs(tag: str) -> Iterator[tuple[str, str | None]]:
+    """Yield ``(name, value)`` for attributes on an opening tag.
+
+    Values are taken with quote awareness, so text inside another attribute
+    (``data-meta="integrity=true"``, ``data-meta="rel='stylesheet'"``) is
+    never reported as its own attribute. Boolean attributes yield ``None``.
+    """
+    i = 0
+    n = len(tag)
+    if i < n and tag[i] == "<":
+        i += 1
+    while i < n and tag[i] not in " \t\r\n/>":
+        i += 1
+    while i < n:
+        while i < n and tag[i] in " \t\r\n/":
+            i += 1
+        if i >= n or tag[i] == ">":
+            break
+        start = i
+        while i < n and tag[i] not in " \t\r\n=/>":
+            i += 1
+        name = tag[start:i]
+        if not name:
+            i += 1
+            continue
+        while i < n and tag[i] in " \t\r\n":
+            i += 1
+        if i >= n or tag[i] != "=":
+            yield name, None
+            continue
+        i += 1
+        while i < n and tag[i] in " \t\r\n":
+            i += 1
+        if i < n and tag[i] in ('"', "'"):
+            quote = tag[i]
+            i += 1
+            vstart = i
+            while i < n and tag[i] != quote:
+                i += 1
+            value = tag[vstart:i]
+            if i < n:
+                i += 1
+            yield name, value
+        else:
+            vstart = i
+            while i < n and tag[i] not in " \t\r\n>":
+                i += 1
+            yield name, tag[vstart:i]
+
+
+def _attr_value(tag: str, wanted: str) -> str | None:
+    """Return the first assignment to ``wanted``, or None if it is absent."""
+    wanted = wanted.lower()
+    for name, value in _iter_attrs(tag):
+        if name.lower() == wanted and value is not None:
+            return value
+    return None
 
 
 def _extract_host(url: str) -> str:
@@ -75,12 +129,34 @@ def _opening_tag(text: str, start: int) -> str:
 
 
 def _link_needs_sri(tag: str) -> bool:
-    m = REL_RE.search(tag)
-    if not m:
+    raw = _attr_value(tag, "rel")
+    if raw is None:
         return False
-    raw = m.group(1) or m.group(2) or m.group(3) or ""
     rels = {part.strip().lower() for part in raw.split()}
     return bool(rels & SRI_LINK_RELS)
+
+
+def _walk_pruned(root: Path, excludes: set[str]) -> Iterator[Path]:
+    """Top-down file walk that skips excluded directory names before descent.
+
+    Same prune rule as ``scripts.discover._walk_with_depth``: an entry whose
+    name is in ``excludes`` is neither yielded nor entered, so trees such as
+    ``node_modules`` are not enumerated. No depth cap — CDN scans are not
+    limited to discovery's manifest walk depth.
+    """
+    def walk(directory: Path):
+        try:
+            for entry in directory.iterdir():
+                if entry.name in excludes:
+                    continue
+                if entry.is_dir():
+                    yield from walk(entry)
+                else:
+                    yield entry
+        except PermissionError:
+            return
+
+    yield from walk(root)
 
 
 def scan_cdn_sri(
@@ -91,14 +167,8 @@ def scan_cdn_sri(
     # Match discover: only path components *under* root count, so a scan root
     # (or ancestor) named build/dist/vendor does not blank the whole tree.
     ex = set(DEFAULT_EXCLUDES) if excludes is None else excludes
-    for file_path in root.rglob("*"):
+    for file_path in _walk_pruned(root, ex):
         if file_path.suffix.lower() not in EXTENSIONS:
-            continue
-        try:
-            rel_parts = file_path.relative_to(root).parts
-        except ValueError:
-            continue
-        if any(p in rel_parts for p in ex):
             continue
         try:
             text = file_path.read_text(encoding="utf-8", errors="replace")
@@ -116,7 +186,7 @@ def scan_cdn_sri(
                 tag = _opening_tag(text, match.start())
                 if tag_name == "link" and not _link_needs_sri(tag):
                     continue
-                if INTEGRITY_RE.search(tag):
+                if _attr_value(tag, "integrity") is not None:
                     continue
                 f = new_finding(
                     purl=f"pkg:cdn/{host}",
