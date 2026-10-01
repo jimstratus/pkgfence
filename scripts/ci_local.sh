@@ -12,8 +12,12 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 if [[ -z "${PYTHON:-}" ]] || ! command -v "$PYTHON" >/dev/null 2>&1; then
+  # Prefer project venv: Unix .venv/bin/python, then Windows .venv/Scripts/python.exe
+  # (Git Bash / documented Windows setup), before falling back to globals.
   if [[ -x .venv/bin/python ]]; then
     PYTHON=.venv/bin/python
+  elif [[ -x .venv/Scripts/python.exe ]]; then
+    PYTHON=.venv/Scripts/python.exe
   elif command -v python3 >/dev/null 2>&1; then
     PYTHON=python3
   elif command -v python >/dev/null 2>&1; then
