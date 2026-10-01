@@ -273,7 +273,7 @@ def test_walk_does_not_follow_dir_symlink_cycle(tmp_path):
     paths = list(_walk_pruned(tmp_path, set()))
     assert any(p.name == "page.html" for p in paths)
     # Symlink itself may be yielded as a non-dir entry; must not re-enter a/b.
-    assert not any(p.name == "loop" and p.is_dir(follow_symlinks=False) for p in paths)
+    assert not any(p.name == "loop" and (not p.is_symlink() and p.is_dir()) for p in paths)
     # Full scan must complete (no RecursionError) and still find the CDN hit.
     findings = scan_cdn_sri(tmp_path, "test", excludes=set())
     assert len(findings) == 1

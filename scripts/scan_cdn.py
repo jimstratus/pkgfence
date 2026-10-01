@@ -155,8 +155,9 @@ def _walk_pruned(root: Path, excludes: set[str]) -> Iterator[Path]:
     ``node_modules`` are not enumerated. No depth cap — CDN scans are not
     limited to discovery's manifest walk depth.
 
-    Directory symlinks are not descended (``is_dir(follow_symlinks=False)``),
-    matching ``Path.rglob`` and avoiding symlink cycles / path escape.
+    Directory symlinks are not descended (``not is_symlink() and is_dir()`` —
+    ``is_dir(follow_symlinks=...)`` needs Python 3.12+; CI runs 3.11), matching
+    ``Path.rglob`` and avoiding symlink cycles / path escape.
     Traversal is iterative so deep non-symlink trees cannot hit RecursionError.
     """
     stack = [root]
@@ -170,7 +171,8 @@ def _walk_pruned(root: Path, excludes: set[str]) -> Iterator[Path]:
         for entry in reversed(entries):
             if entry.name in excludes:
                 continue
-            if entry.is_dir(follow_symlinks=False):
+            # 3.11-safe: do not follow directory symlinks.
+            if not entry.is_symlink() and entry.is_dir():
                 stack.append(entry)
             else:
                 yield entry
