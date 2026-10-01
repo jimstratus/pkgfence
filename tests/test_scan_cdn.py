@@ -231,3 +231,101 @@ def test_walk_prunes_excluded_dirs_before_descent(tmp_path):
     assert tmp_path.name in entered or entered  # root was listed
     assert "node_modules" not in entered
     assert "pkg" not in entered
+
+
+def test_duplicate_integrity_keeps_first_empty(tmp_path):
+    """Browsers keep the first integrity; empty/boolean first still means missing SRI."""
+    _write(
+        tmp_path,
+        "index.html",
+        '<script src="https://unpkg.com/a.js" integrity integrity="sha384-abc"></script>',
+    )
+    findings = scan_cdn_sri(tmp_path, "test")
+    assert len(findings) == 1
+    assert findings[0]["vuln_id"] == "CDN-MISSING-SRI"
+    assert "a.js" in findings[0]["description"]
+
+
+def test_empty_integrity_value_is_missing_sri(tmp_path):
+    """integrity=\"\" is present-but-empty — not valid SRI."""
+    _write(
+        tmp_path,
+        "index.html",
+        '<script src="https://unpkg.com/a.js" integrity=""></script>',
+    )
+    findings = scan_cdn_sri(tmp_path, "test")
+    assert len(findings) == 1
+    assert "a.js" in findings[0]["description"]
+
+
+def test_walk_does_not_follow_dir_symlink_cycle(tmp_path):
+    """Ancestor directory symlink must not cause unbounded recursion."""
+    from scripts.scan_cdn import _walk_pruned
+
+    nested = tmp_path / "a" / "b"
+    nested.mkdir(parents=True)
+    (nested / "page.html").write_text(
+        '<script src="https://unpkg.com/x.js"></script>', encoding="utf-8"
+    )
+    # Cycle: a/b/loop -> a (ancestor)
+    (nested / "loop").symlink_to(tmp_path / "a")
+
+    paths = list(_walk_pruned(tmp_path, set()))
+    assert any(p.name == "page.html" for p in paths)
+    # Symlink itself may be yielded as a non-dir entry; must not re-enter a/b.
+    assert not any(p.name == "loop" and p.is_dir(follow_symlinks=False) for p in paths)
+    # Full scan must complete (no RecursionError) and still find the CDN hit.
+    findings = scan_cdn_sri(tmp_path, "test", excludes=set())
+    assert len(findings) == 1
+    assert "x.js" in findings[0]["description"]
+
+
+def test_walk_does_not_follow_external_dir_symlink(tmp_path):
+    """Directory symlink pointing outside the scan root must not be descended."""
+    from scripts.scan_cdn import _walk_pruned
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.html").write_text(
+        '<script src="https://cdnjs.cloudflare.com/ajax/libs/secret.js"></script>',
+        encoding="utf-8",
+    )
+    root = tmp_path / "root"
+    root.mkdir()
+    (root / "app.html").write_text(
+        '<script src="https://unpkg.com/app.js"></script>', encoding="utf-8"
+    )
+    (root / "escape").symlink_to(outside)
+
+    paths = list(_walk_pruned(root, set()))
+    names = {p.name for p in paths}
+    assert "app.html" in names
+    assert "secret.html" not in names
+
+    findings = scan_cdn_sri(root, "test", excludes=set())
+    assert len(findings) == 1
+    assert "app.js" in findings[0]["description"]
+    assert "secret.js" not in findings[0]["description"]
+
+
+def test_walk_handles_deep_nonsymlink_tree(tmp_path):
+    """Iterative walk must survive trees deeper than sys.getrecursionlimit()."""
+    import sys
+    from scripts.scan_cdn import _walk_pruned
+
+    depth = sys.getrecursionlimit() + 50
+    cur = tmp_path
+    for i in range(depth):
+        cur = cur / "d"
+        cur.mkdir()
+    leaf = cur / "deep.html"
+    leaf.write_text(
+        '<script src="https://unpkg.com/deep.js"></script>', encoding="utf-8"
+    )
+
+    paths = list(_walk_pruned(tmp_path, set()))
+    assert any(p.name == "deep.html" for p in paths)
+
+    findings = scan_cdn_sri(tmp_path, "test", excludes=set())
+    assert len(findings) == 1
+    assert "deep.js" in findings[0]["description"]

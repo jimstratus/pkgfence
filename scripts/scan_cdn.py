@@ -92,12 +92,23 @@ def _iter_attrs(tag: str) -> Iterator[tuple[str, str | None]]:
 
 
 def _attr_value(tag: str, wanted: str) -> str | None:
-    """Return the first assignment to ``wanted``, or None if it is absent."""
+    """Return the value of the first ``wanted`` attribute, or None if absent.
+
+    Browsers keep the *first* duplicate attribute. A boolean attribute (no
+    ``=value``) yields ``None``; callers must not skip past it to a later
+    assignment. An empty or valueless first ``integrity`` is not valid SRI.
+    """
     wanted = wanted.lower()
     for name, value in _iter_attrs(tag):
-        if name.lower() == wanted and value is not None:
-            return value
+        if name.lower() == wanted:
+            return value  # may be None (boolean / empty occurrence)
     return None
+
+
+def _has_sri(tag: str) -> bool:
+    """True when the first ``integrity`` attribute has a non-empty value."""
+    value = _attr_value(tag, "integrity")
+    return value is not None and bool(value.strip())
 
 
 def _extract_host(url: str) -> str:
@@ -143,20 +154,26 @@ def _walk_pruned(root: Path, excludes: set[str]) -> Iterator[Path]:
     name is in ``excludes`` is neither yielded nor entered, so trees such as
     ``node_modules`` are not enumerated. No depth cap — CDN scans are not
     limited to discovery's manifest walk depth.
-    """
-    def walk(directory: Path):
-        try:
-            for entry in directory.iterdir():
-                if entry.name in excludes:
-                    continue
-                if entry.is_dir():
-                    yield from walk(entry)
-                else:
-                    yield entry
-        except PermissionError:
-            return
 
-    yield from walk(root)
+    Directory symlinks are not descended (``is_dir(follow_symlinks=False)``),
+    matching ``Path.rglob`` and avoiding symlink cycles / path escape.
+    Traversal is iterative so deep non-symlink trees cannot hit RecursionError.
+    """
+    stack = [root]
+    while stack:
+        directory = stack.pop()
+        try:
+            entries = list(directory.iterdir())
+        except PermissionError:
+            continue
+        # Reverse so left-to-right DFS order is preserved with LIFO stack.
+        for entry in reversed(entries):
+            if entry.name in excludes:
+                continue
+            if entry.is_dir(follow_symlinks=False):
+                stack.append(entry)
+            else:
+                yield entry
 
 
 def scan_cdn_sri(
@@ -186,7 +203,7 @@ def scan_cdn_sri(
                 tag = _opening_tag(text, match.start())
                 if tag_name == "link" and not _link_needs_sri(tag):
                     continue
-                if _attr_value(tag, "integrity") is not None:
+                if _has_sri(tag):
                     continue
                 f = new_finding(
                     purl=f"pkg:cdn/{host}",
