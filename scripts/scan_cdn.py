@@ -31,14 +31,11 @@ EXTENSIONS = frozenset({".html", ".htm", ".php", ".asp", ".aspx", ".jsp",
 # preconnect / dns-prefetch / canonical / icon do not.
 SRI_LINK_RELS = frozenset({"stylesheet", "preload", "modulepreload"})
 
-SCRIPT_RE = re.compile(
-    r'<script\b[^>]*\bsrc\s*=\s*["\']https?://([^"\']+)["\']',
-    re.IGNORECASE,
-)
-LINK_RE = re.compile(
-    r'<link\b[^>]*\bhref\s*=\s*["\']https?://([^"\']+)["\']',
-    re.IGNORECASE,
-)
+# Locate opening tags only; the resource URL is read from the tag's real
+# ``src``/``href`` attribute via the quote-aware tokenizer, so URL-looking text
+# inside another attribute (``data-meta='src="https://..."'``) is ignored.
+TAG_START_RE = re.compile(r'<(script|link)\b', re.IGNORECASE)
+URL_RE = re.compile(r'^\s*https?://(\S+?)\s*$', re.IGNORECASE)
 
 
 def _iter_attrs(tag: str) -> Iterator[tuple[str, str | None]]:
@@ -193,34 +190,38 @@ def scan_cdn_sri(
             text = file_path.read_text(encoding="utf-8", errors="replace")
         except (OSError, UnicodeDecodeError):
             continue
-        for tag_re, tag_name, attr in (
-            (SCRIPT_RE, "script", "src"),
-            (LINK_RE, "link", "href"),
-        ):
-            for match in tag_re.finditer(text):
-                url = match.group(1)
-                host = _extract_host(url)
-                if not host or host not in CDN_ORIGINS:
-                    continue
-                tag = _opening_tag(text, match.start())
-                if tag_name == "link" and not _link_needs_sri(tag):
-                    continue
-                if _has_sri(tag):
-                    continue
-                f = new_finding(
-                    purl=f"pkg:cdn/{host}",
-                    vuln_id="CDN-MISSING-SRI",
-                    severity="high",
-                    manifest_path=str(file_path),
-                    target=target_name,
-                    description=(
-                        f"CDN resource loaded without integrity hash: "
-                        f"https://{url}"
-                    ),
-                    remediation=(
-                        f"Add integrity=\"sha384-...\" crossorigin=\"anonymous\" "
-                        f"to `<{tag_name}>` {attr}=\"https://{url}\""
-                    ),
-                )
-                findings.append(f)
+        for match in TAG_START_RE.finditer(text):
+            tag_name = match.group(1).lower()
+            attr = "src" if tag_name == "script" else "href"
+            tag = _opening_tag(text, match.start())
+            value = _attr_value(tag, attr)
+            if not value:
+                continue
+            url_match = URL_RE.match(value)
+            if not url_match:
+                continue
+            url = url_match.group(1)
+            host = _extract_host(url).lower()
+            if not host or host not in CDN_ORIGINS:
+                continue
+            if tag_name == "link" and not _link_needs_sri(tag):
+                continue
+            if _has_sri(tag):
+                continue
+            f = new_finding(
+                purl=f"pkg:cdn/{host}",
+                vuln_id="CDN-MISSING-SRI",
+                severity="high",
+                manifest_path=str(file_path),
+                target=target_name,
+                description=(
+                    f"CDN resource loaded without integrity hash: "
+                    f"https://{url}"
+                ),
+                remediation=(
+                    f"Add integrity=\"sha384-...\" crossorigin=\"anonymous\" "
+                    f"to `<{tag_name}>` {attr}=\"https://{url}\""
+                ),
+            )
+            findings.append(f)
     return findings

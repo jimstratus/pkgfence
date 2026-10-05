@@ -347,3 +347,30 @@ def test_walk_handles_deep_nonsymlink_tree():
     paths = list(_walk_pruned(root, set()))
     assert any(p.name == leaf_name for p in paths)
     assert len(paths) == 1
+
+
+def test_src_text_inside_other_attribute_is_ignored(tmp_path):
+    _write(
+        tmp_path,
+        "index.html",
+        "<script data-meta='src=\"https://unpkg.com/ghost.js\"'></script>\n"
+        "<link rel=\"stylesheet\" data-x='href=\"https://unpkg.com/a.css\"'>",
+    )
+    assert scan_cdn_sri(tmp_path, "test") == []
+
+
+def test_real_src_after_decoy_attribute_is_flagged(tmp_path):
+    _write(
+        tmp_path,
+        "index.html",
+        "<script data-meta='src=\"https://example.com/x.js\"' "
+        "src=\"https://unpkg.com/real.js\"></script>",
+    )
+    findings = scan_cdn_sri(tmp_path, "test")
+    assert len(findings) == 1
+    assert "https://unpkg.com/real.js" in findings[0]["description"]
+
+
+def test_unquoted_cdn_src_is_flagged(tmp_path):
+    _write(tmp_path, "index.html", "<script src=https://unpkg.com/a.js></script>")
+    assert len(scan_cdn_sri(tmp_path, "test")) == 1
