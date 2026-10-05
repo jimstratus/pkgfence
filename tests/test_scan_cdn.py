@@ -374,3 +374,23 @@ def test_real_src_after_decoy_attribute_is_flagged(tmp_path):
 def test_unquoted_cdn_src_is_flagged(tmp_path):
     _write(tmp_path, "index.html", "<script src=https://unpkg.com/a.js></script>")
     assert len(scan_cdn_sri(tmp_path, "test")) == 1
+
+
+def test_quoted_cdn_src_with_internal_space_is_flagged(tmp_path):
+    _write(
+        tmp_path, "index.html", '<script src="https://unpkg.com/my lib.js"></script>'
+    )
+    findings = scan_cdn_sri(tmp_path, "test")
+    assert len(findings) == 1
+    assert "https://unpkg.com/my lib.js" in findings[0]["description"]
+
+
+def test_cdn_src_with_tab_newline_and_padding_is_flagged(tmp_path):
+    _write(
+        tmp_path,
+        "index.html",
+        '<script src="  https://un\tpkg.com/a\n.js \r\n"></script>',
+    )
+    findings = scan_cdn_sri(tmp_path, "test")
+    assert len(findings) == 1
+    assert "https://unpkg.com/a.js" in findings[0]["description"]

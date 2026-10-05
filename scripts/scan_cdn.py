@@ -35,7 +35,15 @@ SRI_LINK_RELS = frozenset({"stylesheet", "preload", "modulepreload"})
 # ``src``/``href`` attribute via the quote-aware tokenizer, so URL-looking text
 # inside another attribute (``data-meta='src="https://..."'``) is ignored.
 TAG_START_RE = re.compile(r'<(script|link)\b', re.IGNORECASE)
-URL_RE = re.compile(r'^\s*https?://(\S+?)\s*$', re.IGNORECASE)
+URL_RE = re.compile(r'^https?://(.+)$', re.IGNORECASE | re.DOTALL)
+# WHATWG URL parsing strips leading/trailing C0-control-or-space and removes
+# ASCII tab/newline anywhere; internal spaces are percent-encoded and fetched.
+_URL_STRIP = "".join(chr(c) for c in range(0x21))
+_URL_REMOVE = str.maketrans("", "", "\t\n\r")
+
+
+def _normalize_url(value: str) -> str:
+    return value.strip(_URL_STRIP).translate(_URL_REMOVE)
 
 
 def _iter_attrs(tag: str) -> Iterator[tuple[str, str | None]]:
@@ -197,7 +205,7 @@ def scan_cdn_sri(
             value = _attr_value(tag, attr)
             if not value:
                 continue
-            url_match = URL_RE.match(value)
+            url_match = URL_RE.match(_normalize_url(value))
             if not url_match:
                 continue
             url = url_match.group(1)

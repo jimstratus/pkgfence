@@ -12,7 +12,7 @@
 
 ### Tests / CI
 - New focused tests: `tests/test_scan_cdn.py`, `tests/test_lookup_parser.py`, `tests/test_recommend_fix.py`.
-- Suite: 448 → 478 tests (+30 on top of main: CDN/SRI, lookup parser, recommend_fix, scan-command exclude forwarding, plus review-follow-up cases).
+- Suite: 448 → 480 tests (+32 on top of main: CDN/SRI, lookup parser, recommend_fix, scan-command exclude forwarding, plus review-follow-up cases).
 - CI matrix (Python 3.11/3.12/3.13 + S4 in safety step): proposed in PR description; not applied here because the authenticated token lacks the `workflow` scope.
 
 ### Docs
