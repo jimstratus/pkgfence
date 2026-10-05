@@ -3,6 +3,8 @@
 deps.dev runs before Scorecard because deps.dev provides the repository
 URL needed to look up a Scorecard score.
 """
+from urllib.parse import urlparse
+
 from scripts.lib.types import Finding, is_status_record
 
 
@@ -21,34 +23,51 @@ def _parse_purl_components(purl: str) -> tuple[str, str, str]:
     return (eco, name, version)
 
 
+# deps.dev emits SOURCE_REPO / SOURCE_CODE; also accept plain synonyms.
+_REPO_LINK_LABELS = frozenset({
+    "repo", "source", "repository", "source_repo", "source_code",
+})
+
+
 def _find_repo_url(finding: Finding) -> str | None:
     """Find the GitHub repository URL for a package from deps.dev links.
 
     The GHSA advisory permalink (github.com/advisories/<GHSA>) is NOT a repo
     URL — using it would make Scorecard query owner="advisories". Only deps.dev
-    repo/source/repository links are valid repo URLs.
+    repo-labelled links (``SOURCE_REPO``, ``SOURCE``, ``REPO``, …) are used.
     """
     deps = finding.get("deps_dev")
     if deps:
         for link in deps.get("links") or []:
             url = link.get("url", "")
-            if "github.com" in url and link.get("label", "").lower() in (
-                "repo", "source", "repository"
-            ):
+            label = link.get("label", "").lower()
+            if "github.com" in url and label in _REPO_LINK_LABELS:
                 return url
     return None
 
 
 def _parse_github_url(url: str) -> tuple[str, str] | None:
-    """https://github.com/lodash/lodash -> ('lodash', 'lodash')"""
+    """https://github.com/lodash/lodash -> ('lodash', 'lodash')
+
+    Accepts deps.dev ``SOURCE_REPO`` forms such as
+    ``git+https://github.com/lodash/lodash.git`` (scheme ``git+https``,
+    trailing ``.git``).
+    """
     try:
-        from urllib.parse import urlparse
+        # deps.dev often prefixes VCS schemes: git+https://github.com/...
+        if url.startswith("git+"):
+            url = url[4:]
         parsed = urlparse(url)
         if parsed.netloc != "github.com":
             return None
         parts = [p for p in parsed.path.split("/") if p]
         if len(parts) >= 2:
-            return (parts[0], parts[1])
+            repo = parts[1]
+            if repo.endswith(".git"):
+                repo = repo[:-4]
+            if not repo:
+                return None
+            return (parts[0], repo)
     except Exception:
         pass
     return None
