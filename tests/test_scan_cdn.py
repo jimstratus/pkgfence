@@ -394,3 +394,11 @@ def test_cdn_src_with_tab_newline_and_padding_is_flagged(tmp_path):
     findings = scan_cdn_sri(tmp_path, "test")
     assert len(findings) == 1
     assert "https://unpkg.com/a.js" in findings[0]["description"]
+
+
+def test_nul_in_cdn_src_is_not_treated_as_padding(tmp_path):
+    # HTML replaces NUL with U+FFFD, so this never loads from unpkg.com.
+    _write(
+        tmp_path, "index.html", '<script src="\x00https://unpkg.com/a.js"></script>'
+    )
+    assert scan_cdn_sri(tmp_path, "test") == []

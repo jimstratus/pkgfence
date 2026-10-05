@@ -43,6 +43,9 @@ _URL_REMOVE = str.maketrans("", "", "\t\n\r")
 
 
 def _normalize_url(value: str) -> str:
+    # HTML tokenization replaces NUL in attribute values with U+FFFD before
+    # URL parsing, so a NUL is never URL padding (it blocks the fetch).
+    value = value.replace("\x00", "\ufffd")
     return value.strip(_URL_STRIP).translate(_URL_REMOVE)
 
 
