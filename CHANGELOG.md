@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased — CDN URL bypasses (#8)
+
+### Fixed
+- **Protocol-relative CDN loads** — `<script src="//unpkg.com/x.js">` and `<link rel=stylesheet href="//...">` (plus `\\host`, `/\host`, `///host`) without `integrity` are now flagged and reported as `https://host/...`.
+- **Backslash / extra-slash / scheme-case URLs** — `src`/`href` are parsed like the WHATWG URL parser for special schemes: `\` is treated as `/`, any run of slashes after `http(s):` is skipped (`https:\\unpkg.com\x.js`, `https:/\unpkg.com`, `https:////unpkg.com`), and the scheme is case-insensitive. `https:unpkg.com/x.js` / `https:/unpkg.com/x.js` are flagged conservatively (they load from the CDN whenever the page's scheme differs).
+- **HTML character references in attribute values** — values are decoded as the HTML tokenizer does (`&#9;`, `&#x2F;`, `&colon;`, `&sol;`, named refs; NUL → U+FFFD kept, `&#0;` → U+FFFD) before URL pre-processing, so `src="https://un&#9;pkg.com/x.js"` is caught. Legacy named refs followed by `=`/alphanumeric stay literal per the attribute-value rule (`?a=1&copy=2`). `rel` and `integrity` are decoded too.
+- **Host matching** — userinfo (`https://evil@unpkg.com`), port (`:443`), and a trailing root dot (`unpkg.com.`) are stripped; the host is lowercased, percent-decoded, and IDNA-mapped (fullwidth / ideographic-dot hosts). Look-alikes (`unpkg.com@evil.example`, `unpkg.com.evil.example`, `@` after a `\`/`?`/`#`) are not flagged.
+
+### Tests
+- 79 new focused cases in `tests/test_scan_cdn.py` (script + link, positive and negative).
+- Suite: 481 → 560 tests.
+
 ## Unreleased — CDN/SRI correctness, lookup parser, CI matrix
 
 ### Fixed
