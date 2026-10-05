@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased — CDN/SRI correctness, lookup parser, CI matrix
+
+### Fixed
+- **CDN/SRI scanner false negative** — integrity on a neighboring `<script>`/`<link>` within a 500-char window no longer suppresses a missing-SRI finding on the current tag. Integrity is now checked only inside the opening tag.
+- **CDN/SRI scanner false positives** — `<link rel="preconnect|dns-prefetch|...">` CDN hints are no longer flagged; only `stylesheet` / `preload` / `modulepreload` links require SRI. Matching requires a real `rel` attribute (not `data-rel`) and accepts quoted or unquoted values.
+- **CDN/SRI default excludes** — `scan_cdn_sri` now applies `DEFAULT_EXCLUDES` (skips `node_modules`, `.git`, `.venv`, etc.) unless the caller passes an explicit excludes set. Exclusions are evaluated on paths relative to the scan root so a parent directory named `build`/`dist`/etc. does not blank the scan.
+- **`pkgfence lookup` GHSA IDs** — parser now emits canonical `GHSA-` + lowercase suffix (was uppercasing the whole ID, splitting the on-disk GHSA cache key space).
+- **`pkgfence lookup` MAL IDs** — regex now accepts variable-length suffixes (`MAL-2023-462`), matching real OSV malicious-package IDs.
+- **`--with-fixes` findings_count** — counts recommendations actually emitted (SCAN_ERROR rows no longer inflate the count).
+
+### Tests / CI
+- New focused tests: `tests/test_scan_cdn.py`, `tests/test_lookup_parser.py`, `tests/test_recommend_fix.py`.
+- Suite: 448 → 481 tests (+33 on top of main: CDN/SRI, lookup parser, recommend_fix, scan-command exclude forwarding, plus review-follow-up cases).
+- CI matrix (Python 3.11/3.12/3.13 + S4 in safety step): proposed in PR description; not applied here because the authenticated token lacks the `workflow` scope.
+
+### Docs
+- Stale v0.3.0 / 341-test / 437-test claims refreshed to v0.5.0 and the current suite size (`DEVELOPMENT.md`, `CONTRIBUTING.md`, and agent docs).
+
 ## Unreleased — remote exit-code + yarn/pnpm installed-check
 
 ### Bug fixes
@@ -10,7 +28,6 @@
 
 ### Tests
 - 439 → 448 (+9): remote exit 128/127/1, batch non-success fallback, yarn/pnpm installed local+remote, corrupt baseline, webhook HTTP 500.
-
 
 ## Unreleased — dependency hygiene
 

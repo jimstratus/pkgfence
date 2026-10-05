@@ -19,7 +19,7 @@ from typing import Any
 
 from ruamel.yaml.error import YAMLError
 
-from scripts.discover import discover_manifests_full
+from scripts.discover import DEFAULT_EXCLUDES, discover_manifests_full
 from scripts.scan_local import scan_all_manifests, detect_scanner
 from scripts.discover_remote import discover_remote_safely
 from scripts.scan_remote import scan_remote_manifests
@@ -234,8 +234,13 @@ def run_scan(
             continue
         root_path = Path(raw_path)
         if root_path.is_dir():
+            # Match discover.py: root.get("exclude", DEFAULT_EXCLUDES);
+            # exclude: [] opts out of defaults.
+            cdn_excludes = set(root_cfg.get("exclude", DEFAULT_EXCLUDES))
             cdn_findings = scan_cdn_sri(
-                root_path, target_name=root_cfg.get("name", str(root_path)),
+                root_path,
+                target_name=root_cfg.get("name", str(root_path)),
+                excludes=cdn_excludes,
             )
             findings.extend(cdn_findings)
             if cdn_findings:

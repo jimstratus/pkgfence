@@ -1,9 +1,9 @@
 # pkgfence Architecture
 
-> Accurate as of **v0.3.0** (Phase 3a — EPSS + triple-score ranking + the #7–#20
-> hardening pass). This document describes how the pieces fit together and why.
-> For setup see [DEVELOPMENT.md](../DEVELOPMENT.md); for the agent-facing module
-> map see [AGENTS.md](../AGENTS.md).
+> Accurate as of **v0.5.0** (Phase 3–5 — enrichment, lookup, watch, CDN/SRI, fix
+> recommendations + the #7–#20 hardening pass). This document describes how the
+> pieces fit together and why. For setup see [DEVELOPMENT.md](../DEVELOPMENT.md);
+> for the agent-facing module map see [AGENTS.md](../AGENTS.md).
 
 ## 1. What pkgfence is
 

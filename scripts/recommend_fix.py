@@ -63,7 +63,8 @@ def build_fix_document(findings: list[Finding]) -> dict:
         recommendations.append(rec)
     return {
         "generated": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        "findings_count": len(findings),
+        # Count recommendations actually emitted (SCAN_ERROR rows are skipped).
+        "findings_count": len(recommendations),
         "recommendations": recommendations,
     }
 
