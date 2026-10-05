@@ -402,3 +402,277 @@ def test_nul_in_cdn_src_is_not_treated_as_padding(tmp_path):
         tmp_path, "index.html", '<script src="\x00https://unpkg.com/a.js"></script>'
     )
     assert scan_cdn_sri(tmp_path, "test") == []
+
+
+# --- Issue #8: URL forms browsers still fetch from the CDN ------------------
+
+
+def _descs(findings) -> str:
+    return " | ".join(f["description"] for f in findings)
+
+
+def test_protocol_relative_script_is_flagged_as_https(tmp_path):
+    _write(tmp_path, "index.html", '<script src="//unpkg.com/x.js"></script>')
+    findings = scan_cdn_sri(tmp_path, "test")
+    assert len(findings) == 1
+    assert findings[0]["purl"] == "pkg:cdn/unpkg.com"
+    assert "https://unpkg.com/x.js" in findings[0]["description"]
+    assert "https:////" not in findings[0]["description"]
+
+
+def test_protocol_relative_stylesheet_link_is_flagged(tmp_path):
+    _write(
+        tmp_path,
+        "index.html",
+        '<link rel=stylesheet href="//cdn.jsdelivr.net/npm/x.css">\n'
+        '<link rel="preconnect" href="//unpkg.com">\n',
+    )
+    findings = scan_cdn_sri(tmp_path, "test")
+    assert len(findings) == 1
+    assert "https://cdn.jsdelivr.net/npm/x.css" in findings[0]["description"]
+
+
+def test_protocol_relative_with_integrity_is_not_flagged(tmp_path):
+    _write(
+        tmp_path,
+        "index.html",
+        '<script src="//unpkg.com/x.js" integrity="sha384-abc"></script>',
+    )
+    assert scan_cdn_sri(tmp_path, "test") == []
+
+
+@pytest.mark.parametrize(
+    "src",
+    [
+        "\\\\unpkg.com/x.js",  # \\unpkg.com/x.js
+        "/\\unpkg.com/x.js",
+        "\\/unpkg.com/x.js",
+        "///unpkg.com/x.js",
+    ],
+)
+def test_protocol_relative_slash_variants_are_flagged(tmp_path, src):
+    _write(tmp_path, "index.html", f'<script src="{src}"></script>')
+    findings = scan_cdn_sri(tmp_path, "test")
+    assert len(findings) == 1
+    assert "https://unpkg.com/x.js" in findings[0]["description"]
+
+
+@pytest.mark.parametrize(
+    "src",
+    [
+        "/unpkg.com/x.js",  # root-relative path on the page's own origin
+        "unpkg.com/x.js",  # relative path
+        "./unpkg.com/x.js",
+        "\\unpkg.com/x.js",  # single backslash == single slash: path
+        "//example.com/unpkg.com/x.js",
+        "//unpkg.com.example.com/x.js",
+        "//example.com/?u=//unpkg.com/x.js",
+    ],
+)
+def test_non_cdn_relative_and_lookalike_urls_are_not_flagged(tmp_path, src):
+    _write(tmp_path, "index.html", f'<script src="{src}"></script>')
+    assert scan_cdn_sri(tmp_path, "test") == []
+
+
+@pytest.mark.parametrize(
+    "src",
+    [
+        "https:\\\\unpkg.com\\x.js",  # https:\\unpkg.com\x.js
+        "https:/\\unpkg.com/x.js",
+        "https:\\/unpkg.com/x.js",
+        "https:////unpkg.com/x.js",
+        "HTTPS://unpkg.com/x.js",
+        "HtTpS:\\\\unpkg.com/x.js",
+        "http:\\\\unpkg.com/x.js",
+    ],
+)
+def test_backslash_extra_slash_and_scheme_case_are_flagged(tmp_path, src):
+    _write(tmp_path, "index.html", f'<script src="{src}"></script>')
+    findings = scan_cdn_sri(tmp_path, "test")
+    assert len(findings) == 1
+    assert findings[0]["purl"] == "pkg:cdn/unpkg.com"
+    assert "https://unpkg.com/x.js" in findings[0]["description"]
+
+
+def test_backslash_stylesheet_link_is_flagged(tmp_path):
+    _write(
+        tmp_path,
+        "index.html",
+        '<link rel="stylesheet" href="https:\\\\cdn.jsdelivr.net\\npm\\x.css">',
+    )
+    findings = scan_cdn_sri(tmp_path, "test")
+    assert len(findings) == 1
+    assert "https://cdn.jsdelivr.net/npm/x.css" in findings[0]["description"]
+
+
+@pytest.mark.parametrize(
+    "src",
+    [
+        "https://un&#9;pkg.com/x.js",  # tab char ref, removed by URL parser
+        "https://un&#x9;pkg.com/x.js",
+        "https://un&#10;pkg.com/x.js",
+        "https://un&NewLine;pkg.com/x.js",
+        "https://un&Tab;pkg.com/x.js",
+        "https:&#x2F;&#x2F;unpkg.com&#x2F;x.js",
+        "https:&#47;&#47;unpkg.com/x.js",
+        "https&colon;//unpkg.com/x.js",
+        "https&#58;//unpkg.com/x.js",
+        "https:&sol;&sol;unpkg.com/x.js",
+        "&#104;ttps://unpkg.com/x.js",
+        "&#x20;https://unpkg.com/x.js",  # decoded leading space is URL padding
+        "&#47;&#47;unpkg.com/x.js",  # protocol-relative via char refs
+        "https:&bsol;&bsol;unpkg.com/x.js",
+        "https://unpkg&period;com/x.js",
+        "https://&#117;&#110;&#112;&#107;&#103;&#46;&#99;&#111;&#109;/x.js",
+    ],
+)
+def test_char_refs_in_src_are_decoded(tmp_path, src):
+    _write(tmp_path, "index.html", f'<script src="{src}"></script>')
+    findings = scan_cdn_sri(tmp_path, "test")
+    assert len(findings) == 1, src
+    assert findings[0]["purl"] == "pkg:cdn/unpkg.com"
+    assert "https://unpkg.com/x.js" in findings[0]["description"]
+
+
+def test_char_refs_in_unquoted_src_are_decoded(tmp_path):
+    _write(tmp_path, "index.html", "<script src=https:&#x2F;&#x2F;unpkg.com/x.js></script>")
+    findings = scan_cdn_sri(tmp_path, "test")
+    assert len(findings) == 1
+    assert "https://unpkg.com/x.js" in findings[0]["description"]
+
+
+def test_char_refs_in_link_href_and_rel_are_decoded(tmp_path):
+    _write(
+        tmp_path,
+        "index.html",
+        '<link rel="style&#115;heet" href="https:&#x2F;&#x2F;cdn.jsdelivr.net/npm/x.css">\n'
+        '<link rel="pre&#99;onnect" href="https://unpkg.com">\n',
+    )
+    findings = scan_cdn_sri(tmp_path, "test")
+    assert len(findings) == 1
+    assert "https://cdn.jsdelivr.net/npm/x.css" in findings[0]["description"]
+
+
+def test_nul_char_ref_blocks_the_fetch_like_raw_nul(tmp_path):
+    # &#0; decodes to U+FFFD (not NUL), so it is never stripped as URL padding.
+    _write(
+        tmp_path,
+        "index.html",
+        '<script src="&#0;https://unpkg.com/a.js"></script>\n'
+        '<script src="https://un&#0;pkg.com/b.js"></script>\n'
+        '<script src="https://un\x00pkg.com/c.js"></script>\n',
+    )
+    assert scan_cdn_sri(tmp_path, "test") == []
+
+
+def test_char_ref_decoded_integrity_counts_but_blank_does_not(tmp_path):
+    _write(
+        tmp_path,
+        "index.html",
+        '<script src="https://unpkg.com/ok.js" integrity="sha384&#45;abc"></script>\n'
+        '<script src="https://unpkg.com/bad.js" integrity="&#32;"></script>\n',
+    )
+    findings = scan_cdn_sri(tmp_path, "test")
+    assert len(findings) == 1
+    assert "bad.js" in findings[0]["description"]
+
+
+def test_legacy_named_ref_followed_by_equals_is_not_decoded_in_attribute(tmp_path):
+    # HTML attribute rule: "&copy=" stays literal (it is a query string), so the
+    # reported URL must not be mangled into "(c)=".
+    _write(
+        tmp_path,
+        "index.html",
+        '<script src="https://unpkg.com/x.js?a=1&copy=2&amp;b=3"></script>',
+    )
+    findings = scan_cdn_sri(tmp_path, "test")
+    assert len(findings) == 1
+    assert "https://unpkg.com/x.js?a=1&copy=2&b=3" in findings[0]["description"]
+
+
+def test_char_ref_text_in_other_attribute_is_ignored(tmp_path):
+    _write(
+        tmp_path,
+        "index.html",
+        "<script data-x='src=&quot;https://unpkg.com/ghost.js&quot;'></script>\n"
+        '<script src="https://example.com/x.js" '
+        'data-x="&#x2F;&#x2F;unpkg.com/ghost.js"></script>\n',
+    )
+    assert scan_cdn_sri(tmp_path, "test") == []
+
+
+@pytest.mark.parametrize(
+    "src",
+    [
+        "https://UNPKG.COM/x.js",
+        "https://UnPkg.Com/x.js",
+        "https://evil@unpkg.com/x.js",
+        "https://user:pass@unpkg.com/x.js",
+        "https://a@b@unpkg.com/x.js",
+        "https://unpkg.com:443/x.js",
+        "https://unpkg.com:/x.js",
+        "https://unpkg.com./x.js",
+        "https://UNPKG.com.:443/x.js",
+        "//evil@unpkg.com:8443/x.js",
+        "https://unpkg.com",
+        "https://unpkg.com?x=1",
+        "https://unpkg.com#frag",
+        "https://un%70kg.com/x.js",  # host is percent-decoded
+        "https://ｕｎｐｋｇ．ｃｏｍ/x.js",  # fullwidth: IDNA-mapped to ASCII
+    ],
+)
+def test_host_matching_is_robust(tmp_path, src):
+    _write(tmp_path, "index.html", f'<script src="{src}"></script>')
+    findings = scan_cdn_sri(tmp_path, "test")
+    assert len(findings) == 1, src
+    assert findings[0]["purl"] == "pkg:cdn/unpkg.com"
+
+
+@pytest.mark.parametrize(
+    "src",
+    [
+        "https://unpkg.com@evil.example/x.js",  # unpkg.com is userinfo here
+        "https://evil.example/@unpkg.com/x.js",  # '@' in path, not authority
+        "https://evil.example\\@unpkg.com/x.js",  # '\' ends the authority
+        "https://evil.example?@unpkg.com/x.js",
+        "https://evil.example#@unpkg.com/x.js",
+        "https://notunpkg.com/x.js",
+        "https://unpkg.com.evil.example/x.js",
+        "https://unpkg.co/x.js",
+        "https://unpkg.com../x.js",
+        "ftp://unpkg.com/x.js",
+        "javascript://unpkg.com/%0Aalert(1)",
+        "data:text/javascript,//unpkg.com/x.js",
+        "https:",
+        "https://",
+        "//",
+        "https://[::1]/unpkg.com/x.js",
+    ],
+)
+def test_non_cdn_hosts_are_not_flagged(tmp_path, src):
+    _write(tmp_path, "index.html", f'<script src="{src}"></script>')
+    assert scan_cdn_sri(tmp_path, "test") == [], src
+
+
+def test_userinfo_cdn_link_stylesheet_is_flagged(tmp_path):
+    _write(
+        tmp_path,
+        "index.html",
+        '<link rel="stylesheet" href="https://x@CDN.JSDELIVR.NET.:443/npm/x.css">',
+    )
+    findings = scan_cdn_sri(tmp_path, "test")
+    assert len(findings) == 1
+    assert findings[0]["purl"] == "pkg:cdn/cdn.jsdelivr.net"
+
+
+@pytest.mark.parametrize(
+    "src",
+    ["https:unpkg.com/x.js", "https:/unpkg.com/x.js", "http:\\unpkg.com/x.js"],
+)
+def test_special_scheme_with_fewer_than_two_slashes_is_flagged(tmp_path, src):
+    # WHATWG: when the document's scheme differs (http page, file:// preview,
+    # no base) these parse as authority "unpkg.com"; flag conservatively.
+    _write(tmp_path, "index.html", f'<script src="{src}"></script>')
+    findings = scan_cdn_sri(tmp_path, "test")
+    assert len(findings) == 1, src
+    assert "https://unpkg.com/x.js" in findings[0]["description"]
