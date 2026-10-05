@@ -74,7 +74,7 @@ pkgfence/
 │       ├── audit_log.py      # Per-run JSONL writer
 │       ├── ssh_runner.py     # SSH command runner
 │       └── registry.py       # Registry load/validate/atomic-write
-├── tests/                    # 481 pytest tests
+├── tests/                    # 560 pytest tests
 │   ├── conftest.py           # Shared tmp_state, tmp_registry fixtures
 │   ├── fixtures/             # npm + Python test projects (vulnerable/clean/corrupted)
 │   ├── test_safety_invariants.py       # S1/S2/S3 enforcement
