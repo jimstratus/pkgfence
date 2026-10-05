@@ -11,7 +11,7 @@
 
 ### Tests / CI
 - New unit tests: `test_watch_daemon.py`, `test_enrich_depsdev_scorecard.py`, `test_lookup_command.py`, `test_lookup_report.py`, `test_lookup_websearch.py`; two extra `test_watch_cursors.py` edge cases.
-- Suite: 448 → 491 tests (+43 on top of main).
+- Suite: 481 → 524 tests (+43 on top of main after #5).
 - Local CI stand-in: `scripts/ci_local.sh` runs full pytest + S1–S4 safety step (mirrors intended GitHub Actions steps including S4).
 - CI workflow matrix (Python 3.11/3.12/3.13 + S4 in safety step): skipped — OAuth token lacks `workflow` scope (cannot push under `.github/workflows/`). Use `scripts/ci_local.sh` until a token with `workflow` scope can apply the matrix.
 

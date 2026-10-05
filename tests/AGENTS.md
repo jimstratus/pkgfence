@@ -4,7 +4,7 @@
 # tests
 
 ## Purpose
-491 pytest tests covering unit, integration, safety invariants, and ecosystem validation. Organized as one test file per source module, plus dedicated safety invariant test files.
+524 pytest tests covering unit, integration, safety invariants, and ecosystem validation. Organized as one test file per source module, plus dedicated safety invariant test files.
 
 ## Key Files
 
